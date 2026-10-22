@@ -122,21 +122,6 @@ Every setting is an environment variable; locally they come from `.env` (templat
 
 ---
 
-## Before going to production
-
-- **Sign-in through the Blibli gateway.** The login page is a development user picker without a password, and the
-  API takes the acting user from the request. The gateway must authenticate reviewers, and the API must take the
-  user from the gateway instead.
-- **`ATTACHMENT_HOSTS`** must list Darwinbox's file hosts only.
-- **Database connection:** use the Cloud SQL Auth Proxy, or a verified TLS connection (the driver doesn't check the
-  server's certificate by default).
-- **Timeouts:** the gateway and load balancer must allow at least 120 seconds for `POST /api/reimbursements` and the
-  Excel export.
-- **Planned hardening:** stricter checks on the file downloads (HTTPS only, no private addresses, an overall time
-  limit) and on the OCR prompt.
-
----
-
 ## Repository layout
 
 ```
