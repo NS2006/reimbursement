@@ -1,0 +1,82 @@
+/**
+ * BLUE3 design tokens for React apps.
+ * Verify values against: https://blue.blibli.com/blue3/foundation/design/colors/guidelines
+ */
+:root {
+  /* Primitive colors */
+  --blue-color-blue-50: #e6f6fc;
+  --blue-color-blue-100: #b3e5f7;
+  --blue-color-blue-500: #0095da;
+  --blue-color-blue-600: #007cb4;
+  --blue-color-blue-700: #006494;
+  --blue-color-neutral-0: #ffffff;
+  --blue-color-neutral-50: #f8f9fa;
+  --blue-color-neutral-100: #f1f3f5;
+  --blue-color-neutral-200: #e9ecef;
+  --blue-color-neutral-400: #adb5bd;
+  --blue-color-neutral-600: #6c757d;
+  --blue-color-neutral-800: #343a40;
+  --blue-color-neutral-900: #212529;
+  --blue-color-red-500: #e53935;
+  --blue-color-green-500: #2e7d32;
+  --blue-color-yellow-500: #f9a825;
+
+  /* Semantic colors */
+  --blue-color-brand-primary: var(--blue-color-blue-500);
+  --blue-color-brand-primary-hover: var(--blue-color-blue-600);
+  --blue-color-brand-primary-active: var(--blue-color-blue-700);
+  --blue-color-text-primary: var(--blue-color-neutral-900);
+  --blue-color-text-secondary: var(--blue-color-neutral-600);
+  --blue-color-text-disabled: var(--blue-color-neutral-400);
+  --blue-color-text-on-brand: var(--blue-color-neutral-0);
+  --blue-color-surface-default: var(--blue-color-neutral-0);
+  --blue-color-surface-subtle: var(--blue-color-neutral-50);
+  --blue-color-surface-muted: var(--blue-color-neutral-100);
+  --blue-color-border-default: var(--blue-color-neutral-200);
+  --blue-color-border-focus: var(--blue-color-blue-500);
+  --blue-color-feedback-error: var(--blue-color-red-500);
+  --blue-color-feedback-success: var(--blue-color-green-500);
+  --blue-color-feedback-warning: var(--blue-color-yellow-500);
+  /* Text on light warning backgrounds: yellow-500 itself is too light to read there. */
+  --blue-color-feedback-warning-text: #8a5a00;
+  --blue-color-feedback-warning-surface: #fff8e1;
+  --blue-color-feedback-error-hover: #c62828;
+  --blue-color-feedback-error-surface: #fdecea;
+  --blue-color-overlay: rgba(33, 37, 41, 0.5);
+
+  /* Spacing (4px grid) */
+  --blue-space-0: 0;
+  --blue-space-1: 4px;
+  --blue-space-2: 8px;
+  --blue-space-3: 12px;
+  --blue-space-4: 16px;
+  --blue-space-5: 20px;
+  --blue-space-6: 24px;
+  --blue-space-8: 32px;
+  --blue-space-10: 40px;
+  --blue-space-12: 48px;
+
+  /* Radius */
+  --blue-radius-sm: 4px;
+  --blue-radius-md: 8px;
+  --blue-radius-lg: 12px;
+  --blue-radius-pill: 9999px;
+
+  /* Typography */
+  --blue-font-size-xs: 12px;
+  --blue-font-size-sm: 14px;
+  --blue-font-size-md: 16px;
+  --blue-font-size-lg: 18px;
+  --blue-font-size-xl: 20px;
+  --blue-font-size-2xl: 24px;
+  --blue-font-weight-regular: 400;
+  --blue-font-weight-medium: 500;
+  --blue-font-weight-semibold: 600;
+  --blue-font-weight-bold: 700;
+  --blue-line-height-normal: 1.5;
+
+  /* Shadow */
+  --blue-shadow-sm: 0 1px 2px rgba(33, 37, 41, 0.08);
+  --blue-shadow-md: 0 4px 12px rgba(33, 37, 41, 0.12);
+  --blue-shadow-lg: 0 12px 32px rgba(33, 37, 41, 0.2);
+}

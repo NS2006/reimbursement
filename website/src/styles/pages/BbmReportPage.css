@@ -1,0 +1,905 @@
+.bbm-report {
+  display: flex;
+  flex-direction: column;
+  gap: var(--blue-space-4);
+}
+
+.bbm-report__icon {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Back to the list, previous / next report */
+.bbm-report__nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--blue-space-2) var(--blue-space-4);
+  font-size: var(--blue-font-size-sm);
+}
+
+.bbm-report__back {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--blue-space-1);
+}
+
+.bbm-report__pager {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--blue-space-1);
+}
+
+.bbm-report__position {
+  padding: 0 var(--blue-space-2);
+  color: var(--blue-color-text-secondary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.bbm-report__pager-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--blue-space-1);
+  padding: var(--blue-space-1) var(--blue-space-2);
+  border: 1px solid var(--blue-color-border-default);
+  border-radius: var(--blue-radius-md);
+  background: var(--blue-color-surface-default);
+  color: var(--blue-color-text-primary);
+  font-weight: var(--blue-font-weight-medium);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+a.bbm-report__pager-link:hover {
+  border-color: var(--blue-color-brand-primary);
+  color: var(--blue-color-brand-primary);
+}
+
+a.bbm-report__pager-link:focus-visible {
+  outline: 2px solid var(--blue-color-border-focus);
+  outline-offset: 2px;
+}
+
+.bbm-report__pager-link--off {
+  color: var(--blue-color-text-disabled);
+  background: transparent;
+}
+
+/* Title, employee and when it was received; refresh on the right */
+.bbm-report__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--blue-space-3) var(--blue-space-4);
+}
+
+.bbm-report__title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--blue-space-3);
+}
+
+.bbm-report__title .page-title {
+  margin: 0;
+}
+
+.bbm-report__header .page-subtitle {
+  margin-top: var(--blue-space-1);
+}
+
+.bbm-report__sync {
+  display: flex;
+  align-items: center;
+  gap: var(--blue-space-3);
+}
+
+.bbm-report__updated {
+  font-size: var(--blue-font-size-xs);
+  color: var(--blue-color-text-secondary);
+  white-space: nowrap;
+}
+
+/* What changed since the revision before: a row per change, with its value then and now */
+.bbm-report__changes {
+  padding: var(--blue-space-3) var(--blue-space-4);
+  border: 1px solid var(--blue-color-blue-100);
+  border-radius: var(--blue-radius-md);
+  background: var(--blue-color-blue-50);
+  font-size: var(--blue-font-size-sm);
+}
+
+.bbm-report__changes-title {
+  display: block;
+  font-weight: var(--blue-font-weight-semibold);
+  color: var(--blue-color-blue-700);
+}
+
+/* "Nothing in the items, the total or the files." under the title */
+.bbm-report__changes .bbm-report__muted {
+  display: block;
+  margin-top: var(--blue-space-1);
+}
+
+.bbm-report__changes-scroll {
+  margin-top: var(--blue-space-2);
+  overflow-x: auto;
+}
+
+.bbm-report__changes-table {
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.bbm-report__changes-table th,
+.bbm-report__changes-table td {
+  padding: var(--blue-space-1) var(--blue-space-6) var(--blue-space-1) 0;
+  text-align: left;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+
+.bbm-report__changes-table thead th {
+  font-size: var(--blue-font-size-xs);
+  font-weight: var(--blue-font-weight-semibold);
+  color: var(--blue-color-text-secondary);
+  white-space: nowrap;
+}
+
+.bbm-report__changes-table tbody tr {
+  border-top: 1px solid var(--blue-color-blue-100);
+}
+
+.bbm-report__changes-table tbody th {
+  font-weight: var(--blue-font-weight-regular);
+  color: var(--blue-color-text-primary);
+}
+
+.bbm-report__changes-before {
+  color: var(--blue-color-text-secondary);
+}
+
+.bbm-report__changes-after {
+  font-weight: var(--blue-font-weight-semibold);
+  color: var(--blue-color-text-primary);
+}
+
+.bbm-report__changes-table .bbm-report__changes-arrow {
+  padding-right: var(--blue-space-3);
+  color: var(--blue-color-text-secondary);
+}
+
+/* The workspace: summary and tables on the right, the photo on the left (in view while scrolling).
+   In the page the summary comes first, so on narrow screens it is the first thing shown. */
+.bbm-report__grid {
+  display: grid;
+  grid-template-areas:
+    "photo summary"
+    "photo main";
+  grid-template-columns: minmax(300px, 4fr) minmax(0, 6fr);
+  grid-template-rows: auto 1fr;
+  align-items: start;
+  gap: var(--blue-space-4);
+}
+
+.bbm-report__photos {
+  grid-area: photo;
+  position: sticky;
+  top: 80px;
+  /* From under the navbar to just above the decision bar (its height is set by the controller), so nothing in it
+     is hidden behind the bar; what does not fit scrolls inside it */
+  --bbm-photos-height: calc(100vh - 80px - var(--bbm-decision-height, 0px) - 2 * var(--blue-space-4));
+  max-height: var(--bbm-photos-height);
+  overflow-y: auto;
+  /* The photo as tall as the screen allows with the toolbar and the caption under it, and not taller than the
+     photo itself needs */
+  --photo-viewer-min-height: 220px;
+  --photo-viewer-max-height: calc(var(--bbm-photos-height) - 160px);
+}
+
+.bbm-report__main {
+  grid-area: main;
+  display: flex;
+  flex-direction: column;
+  gap: var(--blue-space-4);
+  min-width: 0;
+}
+
+/* The review summary, coloured by the status */
+.bbm-report__summary {
+  --bbm-status: var(--blue-color-neutral-400);
+  grid-area: summary;
+  min-width: 0;
+  padding: var(--blue-space-4);
+  border: 1px solid var(--blue-color-border-default);
+  border-left: 4px solid var(--bbm-status);
+  border-radius: 0 var(--blue-radius-lg) var(--blue-radius-lg) 0;
+  background: var(--blue-color-surface-default);
+  box-shadow: var(--blue-shadow-sm);
+}
+
+.bbm-report__summary--needs_review { --bbm-status: var(--blue-color-feedback-error); }
+.bbm-report__summary--proceed { --bbm-status: var(--blue-color-brand-primary); }
+.bbm-report__summary--matched { --bbm-status: var(--blue-color-feedback-success); }
+.bbm-report__summary--failed { --bbm-status: var(--blue-color-feedback-warning); }
+.bbm-report__summary--failed .bbm-report__summary-icon { color: var(--blue-color-feedback-warning-text); }
+
+.bbm-report__summary-head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--blue-space-3);
+}
+
+.bbm-report__summary-icon {
+  display: inline-flex;
+  margin-top: 2px;
+  color: var(--bbm-status);
+}
+
+.bbm-report__summary-icon .bbm-report__icon {
+  width: 22px;
+  height: 22px;
+}
+
+.bbm-report__summary-title {
+  margin: 0;
+  font-size: var(--blue-font-size-lg);
+  font-weight: var(--blue-font-weight-semibold);
+}
+
+.bbm-report__summary-text {
+  margin: 2px 0 0;
+  font-size: var(--blue-font-size-sm);
+  color: var(--blue-color-text-secondary);
+}
+
+/* Why the OCR couldn't read a file */
+.bbm-report__summary-reason {
+  margin: var(--blue-space-2) 0 0;
+  font-size: var(--blue-font-size-sm);
+  color: var(--blue-color-feedback-warning-text);
+}
+
+/* What the reviewer can do about it, on its own line */
+.bbm-report__summary-todo {
+  display: block;
+  color: var(--blue-color-text-primary);
+}
+
+/* Retry OCR, under the reasons */
+.bbm-report__summary-action {
+  margin-top: var(--blue-space-3);
+}
+
+/* The differences, one block each: what and where, both values side by side, then what it looks like */
+.bbm-report__differences {
+  display: flex;
+  flex-direction: column;
+  gap: var(--blue-space-3);
+  margin: var(--blue-space-4) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.bbm-difference {
+  padding-top: var(--blue-space-3);
+  border-top: 1px solid var(--blue-color-border-default);
+}
+
+.bbm-difference__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--blue-space-1) var(--blue-space-3);
+}
+
+.bbm-difference__name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 var(--blue-space-2);
+}
+
+.bbm-difference__label {
+  font-weight: var(--blue-font-weight-semibold);
+}
+
+/* The ghost button's text lines up with the right edge of the values */
+.bbm-difference__show {
+  margin-right: calc(-1 * var(--blue-space-2));
+}
+
+.bbm-difference__show .bbm-report__icon {
+  width: 14px;
+  height: 14px;
+  margin-left: var(--blue-space-1);
+  vertical-align: -2px;
+}
+
+.bbm-difference__sides {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--blue-space-2);
+  margin-top: var(--blue-space-2);
+}
+
+/* One value. Red: the submitted value doesn't fit the other numbers on the receipt. Amber: the OCR misread. */
+.bbm-side {
+  --bbm-side-color: var(--blue-color-text-primary);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: var(--blue-space-2) var(--blue-space-3);
+  border: 1px solid var(--blue-color-border-default);
+  border-radius: var(--blue-radius-md);
+  background: var(--blue-color-surface-default);
+}
+
+.bbm-side--wrong.bbm-side--submitted {
+  --bbm-side-color: var(--blue-color-feedback-error-hover);
+  border-color: transparent;
+  background: var(--blue-color-feedback-error-surface);
+}
+
+.bbm-side--wrong.bbm-side--receipt {
+  --bbm-side-color: var(--blue-color-feedback-warning-text);
+  border-color: transparent;
+  background: var(--blue-color-feedback-warning-surface);
+}
+
+.bbm-side__caption {
+  font-size: var(--blue-font-size-xs);
+  color: var(--blue-color-text-secondary);
+}
+
+.bbm-side--wrong .bbm-side__caption {
+  color: var(--bbm-side-color);
+}
+
+.bbm-side__value {
+  font-size: var(--blue-font-size-md);
+  font-weight: var(--blue-font-weight-semibold);
+  color: var(--bbm-side-color);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.bbm-side__value--empty {
+  font-weight: var(--blue-font-weight-regular);
+  font-style: italic;
+  color: var(--blue-color-text-secondary);
+}
+
+/* The characters that differ from the other value */
+.bbm-side__changed {
+  padding: 0 1px;
+  border-radius: 2px;
+  background: color-mix(in srgb, currentColor 16%, transparent);
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+}
+
+.bbm-side__note {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--blue-space-1);
+  font-size: var(--blue-font-size-xs);
+  color: var(--bbm-side-color);
+}
+
+.bbm-side--fits .bbm-side__note {
+  color: var(--blue-color-feedback-success);
+}
+
+.bbm-side__note .bbm-report__icon {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin-top: 1px;
+}
+
+.bbm-difference__hint {
+  margin: var(--blue-space-2) 0 0;
+  font-size: var(--blue-font-size-sm);
+  color: var(--blue-color-text-secondary);
+}
+
+/* Cards with a table: the table reaches the card's edges */
+.bbm-report__table-card .blue-card__body {
+  padding: 0;
+}
+
+.bbm-report__card-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--blue-space-2) var(--blue-space-4);
+}
+
+.bbm-report__card-meta {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--blue-space-2);
+  font-size: var(--blue-font-size-xs);
+  font-weight: var(--blue-font-weight-regular);
+  color: var(--blue-color-text-secondary);
+}
+
+.bbm-report__count {
+  margin-left: var(--blue-space-2);
+  padding: 0 6px;
+  border-radius: var(--blue-radius-pill);
+  background: var(--blue-color-surface-muted);
+  color: var(--blue-color-text-secondary);
+  font-size: var(--blue-font-size-xs);
+  font-weight: var(--blue-font-weight-medium);
+}
+
+.bbm-report__table-note {
+  margin: 0;
+  padding: var(--blue-space-3);
+  border-top: 1px solid var(--blue-color-border-default);
+  font-size: var(--blue-font-size-xs);
+  color: var(--blue-color-text-secondary);
+}
+
+/* Why a total doesn't add up */
+.bbm-report__table-note--warning {
+  background: var(--blue-color-feedback-warning-surface);
+  color: var(--blue-color-feedback-warning-text);
+  font-weight: var(--blue-font-weight-medium);
+}
+
+.bbm-report__table-note--warning + .bbm-report__table-note {
+  border-top: none;
+}
+
+/* The total of all receipt files, under their tables: like a footer row of its own */
+.bbm-report__all-files {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--blue-space-1) var(--blue-space-4);
+  padding: var(--blue-space-3) var(--blue-space-4);
+  border: 1px solid var(--blue-color-border-default);
+  border-top: 2px solid var(--blue-color-neutral-200);
+  border-radius: var(--blue-radius-lg);
+  background: var(--blue-color-surface-subtle);
+  font-size: var(--blue-font-size-sm);
+}
+
+.bbm-report__all-files--differs {
+  background: var(--blue-color-feedback-warning-surface);
+  box-shadow: inset 3px 0 0 var(--blue-color-feedback-warning);
+}
+
+.bbm-report__all-files-label {
+  font-weight: var(--blue-font-weight-medium);
+  color: var(--blue-color-text-secondary);
+}
+
+.bbm-report__all-files-sum {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: var(--blue-space-1) var(--blue-space-2);
+  margin-left: auto;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.bbm-report__all-files-sum strong {
+  font-weight: var(--blue-font-weight-semibold);
+}
+
+.bbm-report__all-files-sum .bbm-report__stack {
+  align-items: flex-end;
+}
+
+/* The submitted items and the OCR reading share their column widths, so a value can be compared with the one
+   right above or below it */
+.bbm-report__aligned .blue-table__table {
+  min-width: 680px;
+  table-layout: fixed;
+}
+
+.bbm-report__aligned .blue-table__head {
+  white-space: normal;
+}
+
+.bbm-report__aligned .blue-table__cell {
+  overflow-wrap: anywhere;
+}
+
+/* Cell content */
+.bbm-report__stack {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.blue-table__cell--right .bbm-report__stack {
+  align-items: flex-end;
+}
+
+.bbm-report__muted {
+  font-size: var(--blue-font-size-xs);
+  font-weight: var(--blue-font-weight-regular);
+  color: var(--blue-color-text-secondary);
+}
+
+.bbm-report__cell--differs,
+.blue-table__foot-cell.bbm-report__cell--differs {
+  background: var(--blue-color-feedback-warning-surface);
+  box-shadow: inset 3px 0 0 var(--blue-color-feedback-warning);
+}
+
+/* Under a receipt total that isn't the submitted one: by how much. It wraps within the narrow amount column. */
+.bbm-report__gap {
+  max-width: 100%;
+  font-size: var(--blue-font-size-xs);
+  font-weight: var(--blue-font-weight-medium);
+  color: var(--blue-color-feedback-warning-text);
+  text-align: right;
+  white-space: normal;
+}
+
+/* "Show in tables": the cells of the difference blink once */
+.bbm-report__cell--flash {
+  animation: bbm-report-flash 1.6s ease-out;
+}
+
+@keyframes bbm-report-flash {
+  0%,
+  45% {
+    box-shadow: inset 0 0 0 2px var(--blue-color-brand-primary);
+    background: var(--blue-color-blue-50);
+  }
+}
+
+.bbm-report__null {
+  font-style: italic;
+  color: var(--blue-color-feedback-error);
+}
+
+/* Only shown below the confident line, so always a warning */
+.bbm-report__confidence {
+  font-size: var(--blue-font-size-xs);
+  font-weight: var(--blue-font-weight-semibold);
+  color: var(--blue-color-feedback-warning-text);
+}
+
+/* The decision: stays at the bottom of the screen while scrolling through the report */
+.bbm-decision {
+  --bbm-decision-color: var(--blue-color-neutral-400);
+  position: sticky;
+  bottom: var(--blue-space-4);
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: var(--blue-space-3) var(--blue-space-4);
+  padding: var(--blue-space-3) var(--blue-space-4);
+  border: 1px solid var(--blue-color-border-default);
+  border-left: 4px solid var(--bbm-decision-color);
+  border-radius: var(--blue-radius-lg);
+  background: var(--blue-color-surface-default);
+  box-shadow: var(--blue-shadow-lg);
+}
+
+.bbm-decision--attention { --bbm-decision-color: var(--blue-color-feedback-error); }
+.bbm-decision--approved { --bbm-decision-color: var(--blue-color-feedback-success); }
+.bbm-decision--rejected { --bbm-decision-color: var(--blue-color-neutral-800); }
+.bbm-decision--old { --bbm-decision-color: var(--blue-color-brand-primary); }
+
+.bbm-decision__icon {
+  display: inline-flex;
+  align-self: flex-start;
+  margin-top: 2px;
+  color: var(--bbm-decision-color);
+}
+
+.bbm-decision__icon .bbm-report__icon {
+  width: 22px;
+  height: 22px;
+}
+
+.bbm-decision__text {
+  flex: 1;
+  min-width: 0;
+}
+
+.bbm-decision__title {
+  margin: 0;
+  font-weight: var(--blue-font-weight-semibold);
+}
+
+.bbm-decision__detail {
+  margin: 2px 0 0;
+  font-size: var(--blue-font-size-sm);
+  color: var(--blue-color-text-secondary);
+  /* A long reason: two lines here, all of it in the history */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+
+.bbm-decision__side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--blue-space-1);
+}
+
+.bbm-decision__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--blue-space-2);
+}
+
+.bbm-decision__actions .blue-button {
+  white-space: nowrap;
+}
+
+.bbm-decision__link {
+  text-decoration: none;
+}
+
+.bbm-decision__link .bbm-report__icon {
+  margin-right: -4px;
+}
+
+.bbm-decision__caption {
+  margin: 0;
+  font-size: var(--blue-font-size-xs);
+  color: var(--blue-color-text-secondary);
+  white-space: nowrap;
+}
+
+/* Toasts (e.g. "Approved · Undo") show above the decision bar, not on its buttons */
+body:has(.bbm-decision) .blue-toast-region {
+  bottom: 112px;
+}
+
+/* Rejecting: the reason, and ready-made ones to add */
+.bbm-reject__text {
+  margin: 0 0 var(--blue-space-4);
+  font-size: var(--blue-font-size-sm);
+  color: var(--blue-color-text-secondary);
+}
+
+.bbm-reject__suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--blue-space-2);
+  margin-top: var(--blue-space-3);
+}
+
+.bbm-reject__suggestions-label {
+  width: 100%;
+  font-size: var(--blue-font-size-xs);
+  font-weight: var(--blue-font-weight-medium);
+  color: var(--blue-color-text-secondary);
+}
+
+.bbm-reject__chip {
+  max-width: 100%;
+  padding: var(--blue-space-1) var(--blue-space-3);
+  border: 1px solid var(--blue-color-border-default);
+  border-radius: var(--blue-radius-pill);
+  background: var(--blue-color-surface-subtle);
+  color: var(--blue-color-text-primary);
+  font: inherit;
+  font-size: var(--blue-font-size-xs);
+  text-align: left;
+  cursor: pointer;
+}
+
+.bbm-reject__chip::before {
+  content: "+ ";
+  color: var(--blue-color-brand-primary);
+  font-weight: var(--blue-font-weight-semibold);
+}
+
+.bbm-reject__chip:hover:not(:disabled) {
+  border-color: var(--blue-color-brand-primary);
+  background: var(--blue-color-blue-50);
+}
+
+.bbm-reject__chip:focus-visible {
+  outline: 2px solid var(--blue-color-border-focus);
+  outline-offset: 1px;
+}
+
+/* Already in the reason */
+.bbm-reject__chip:disabled {
+  cursor: default;
+  color: var(--blue-color-text-disabled);
+}
+
+.bbm-reject__chip:disabled::before {
+  content: "✓ ";
+  color: inherit;
+}
+
+/* History: a timeline, newest first */
+.bbm-history {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.bbm-history__event {
+  --bbm-history-color: var(--blue-color-neutral-400);
+  position: relative;
+  display: flex;
+  gap: var(--blue-space-3);
+  padding-bottom: var(--blue-space-3);
+}
+
+.bbm-history__event:last-child {
+  padding-bottom: 0;
+}
+
+/* The line between the dots */
+.bbm-history__event:not(:last-child)::before {
+  content: "";
+  position: absolute;
+  top: 14px;
+  bottom: -2px;
+  left: 4px;
+  width: 2px;
+  background: var(--blue-color-border-default);
+}
+
+.bbm-history__event--attention { --bbm-history-color: var(--blue-color-feedback-error); }
+.bbm-history__event--info { --bbm-history-color: var(--blue-color-brand-primary); }
+.bbm-history__event--approved { --bbm-history-color: var(--blue-color-feedback-success); }
+.bbm-history__event--rejected { --bbm-history-color: var(--blue-color-neutral-800); }
+
+.bbm-history__dot {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: var(--bbm-history-color);
+}
+
+.bbm-history__body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  font-size: var(--blue-font-size-sm);
+}
+
+.bbm-history__text {
+  font-weight: var(--blue-font-weight-medium);
+}
+
+.bbm-history__meta {
+  font-size: var(--blue-font-size-xs);
+  color: var(--blue-color-text-secondary);
+}
+
+.bbm-history__reason {
+  margin-top: var(--blue-space-1);
+  padding-left: var(--blue-space-2);
+  border-left: 2px solid var(--blue-color-border-default);
+  color: var(--blue-color-text-primary);
+  overflow-wrap: anywhere;
+}
+
+/* Loading and errors */
+.bbm-report__centered {
+  display: flex;
+  justify-content: center;
+  padding: var(--blue-space-12) 0;
+}
+
+.bbm-report__error {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--blue-space-3);
+}
+
+/* Too narrow for the photo next to the tables: summary, then the photo, then the tables */
+@media (max-width: 1200px) {
+  .bbm-report__grid {
+    grid-template-areas:
+      "summary"
+      "photo"
+      "main";
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: none;
+  }
+
+  .bbm-report__photos {
+    position: static;
+    max-height: none;
+    overflow: visible;
+    --photo-viewer-max-height: min(70vh, 640px);
+  }
+}
+
+/* Phones: the tables become one card per row (BlueTable stackOnMobile) */
+@media (max-width: 640px) {
+  .bbm-report__aligned .blue-table__table {
+    min-width: 0;
+  }
+
+  .blue-table__cell--right .bbm-report__stack {
+    align-items: flex-start;
+  }
+
+  .bbm-report__gap {
+    text-align: left;
+  }
+
+  /* The decision: text on top, the buttons side by side under it, across the whole width */
+  .bbm-decision {
+    flex-wrap: wrap;
+    bottom: var(--blue-space-2);
+    padding: var(--blue-space-3);
+  }
+
+  .bbm-decision__text {
+    flex-basis: calc(100% - 40px);
+  }
+
+  .bbm-decision__side {
+    width: 100%;
+    align-items: stretch;
+  }
+
+  .bbm-decision__actions > * {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding-left: var(--blue-space-2);
+    padding-right: var(--blue-space-2);
+  }
+
+  .bbm-decision__caption {
+    text-align: center;
+    white-space: normal;
+  }
+
+  body:has(.bbm-decision) .blue-toast-region {
+    bottom: 176px;
+  }
+}
+
+/* Narrow phones: the two values one above the other */
+@media (max-width: 480px) {
+  .bbm-difference__sides {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bbm-report__cell--flash {
+    animation-duration: 2.4s;
+    animation-timing-function: steps(1, end);
+  }
+}

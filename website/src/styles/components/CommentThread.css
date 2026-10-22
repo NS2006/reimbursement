@@ -1,0 +1,125 @@
+.comment-thread {
+  display: flex;
+  flex-direction: column;
+  gap: var(--blue-space-4);
+}
+
+/* Focused from code (e.g. after a delete) so the keyboard focus is not lost; no outline needed */
+.comment-thread:focus {
+  outline: none;
+}
+
+.comment-thread__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--blue-space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.comment-thread__item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--blue-space-3);
+}
+
+.comment-thread__body {
+  flex: 1;
+  min-width: 0;
+}
+
+.comment-thread__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0 var(--blue-space-2);
+  min-height: 28px;
+}
+
+.comment-thread__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--blue-space-1) var(--blue-space-2);
+  margin: 0;
+  font-size: var(--blue-font-size-sm);
+}
+
+.comment-thread__time {
+  font-size: var(--blue-font-size-xs);
+  color: var(--blue-color-text-secondary);
+}
+
+.comment-thread__edited {
+  font-style: italic;
+}
+
+.comment-thread__actions {
+  display: flex;
+  gap: var(--blue-space-1);
+}
+
+.comment-thread__delete {
+  color: var(--blue-color-feedback-error);
+}
+
+.comment-thread__delete:hover:not(:disabled) {
+  background: var(--blue-color-feedback-error-surface);
+}
+
+.comment-thread__text {
+  margin: var(--blue-space-1) 0 0;
+  font-size: var(--blue-font-size-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.comment-thread__editor {
+  display: flex;
+  flex-direction: column;
+  gap: var(--blue-space-2);
+  margin-top: var(--blue-space-2);
+}
+
+.comment-thread__editor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--blue-space-2);
+}
+
+.comment-thread__empty {
+  margin: 0;
+  font-size: var(--blue-font-size-sm);
+  color: var(--blue-color-text-secondary);
+}
+
+.comment-thread__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--blue-space-3);
+  padding-top: var(--blue-space-4);
+  border-top: 1px solid var(--blue-color-border-default);
+}
+
+/* The delete confirmation dialog */
+.comment-thread__dialog-text {
+  margin: 0;
+  color: var(--blue-color-text-secondary);
+}
+
+.comment-thread__quote {
+  display: -webkit-box;
+  margin: var(--blue-space-3) 0;
+  padding: var(--blue-space-2) var(--blue-space-3);
+  overflow: hidden;
+  border-left: 3px solid var(--blue-color-border-default);
+  border-radius: var(--blue-radius-sm);
+  background: var(--blue-color-surface-subtle);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
+}

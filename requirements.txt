@@ -1,8 +1,12 @@
 # Install with:  pip install -r requirements.txt
 
-python-dotenv>=1.0,<2
-requests>=2.32,<3
-anthropic[vertex]>=1.0,<2
 scipy>=1.11
 numpy>=1.24
 Flask>=3.1,<4
+rich>=13,<15
+pg8000>=1.31,<2
+python-dotenv>=1.2.2,<2
+openpyxl>=3.1,<3.2                # the export copies cell._style (private), see xlsx_style.table()
+google-cloud-storage>=3.16.0,<4   # receipt files (GCS_BUCKET)
+urllib3>=2.8.0,<3                 # fixes open advisories in older urllib3 (via requests)
+gunicorn>=26.2,<27                # the API's web server in Docker (MIT); not used on Windows

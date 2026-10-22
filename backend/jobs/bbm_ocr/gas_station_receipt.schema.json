@@ -1,0 +1,117 @@
+{
+  "$defs": {
+    "conf": { "type": "number", "minimum": 0, "maximum": 1 }
+  },
+  "type": "object",
+  "properties": {
+    "receipts": {
+      "type": "array",
+      "description": "One entry per physical receipt in reading order. Never merge, skip or deduplicate look-alike receipts.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": ["string", "null"],
+            "description": "Transaction date as DD-MM-YYYY (e.g. 26-05-2026), day first as the receipt prints it, no time. Null if the day, month or year is unreadable."
+          },
+          "discount": {
+            "type": "number",
+            "description": "Positive total discount or subsidy actually applied to this transaction, in rupiah. 0 if none or not proven by the transaction lines."
+          },
+          "total": {
+            "type": ["number", "null"],
+            "description": "Final amount paid for the whole receipt. Not cash tendered, change or tax."
+          },
+          "products": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": ["string", "null"],
+                  "description": "Product name as printed."
+                },
+                "quantity": {
+                  "type": ["number", "null"],
+                  "description": "Volume in liters; the separator is a decimal point."
+                },
+                "unit_price": {
+                  "type": ["number", "null"],
+                  "description": "GROSS rupiah per liter before any discount or subsidy, never the reduced price. Null if unsupported."
+                },
+                "total_price": {
+                  "type": ["number", "null"],
+                  "description": "GROSS product amount before discount, not the amount paid when a discount exists. Null if unsupported."
+                },
+                "confidence": {
+                  "type": "object",
+                  "description": "How sure you are that each value of this product is exactly what is printed, as a number from 0.0 to 1.0. Judge only how readable the characters are and how clear their meaning is, never because the arithmetic fits. 0.95 to 1.0: every character is sharp and the meaning is clear. 0.80 to 0.94: one character is faint or could be mistaken for another. 0.50 to 0.79: you are choosing between two or more readings. Below 0.50: mostly a guess. 0.0: the value is null. Do not give 0.99 unless you checked every character.",
+                  "properties": {
+                    "name": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1,
+                      "description": "0.0 to 1.0. Is every letter and digit of the name exactly as printed (BP92 and EP92 are different names)? Lower it when a character could be another one (B/E, 0/O, 5/S, 1/I, 8/B)."
+                    },
+                    "quantity": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1,
+                      "description": "0.0 to 1.0. Is every digit and the decimal point of the liters exactly as printed? Lower it when a digit is faint or the comma/point could be read either way."
+                    },
+                    "unit_price": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1,
+                      "description": "0.0 to 1.0. Is every digit and separator right, and is it the gross price per liter? Lower it when you cannot tell whether the printed price is gross or already reduced."
+                    },
+                    "total_price": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1,
+                      "description": "0.0 to 1.0. Is every digit and separator right, and is it the gross product amount? Lower it when it could be the amount paid after a discount, or when a digit is faint."
+                    }
+                  },
+                  "required": ["name", "quantity", "unit_price", "total_price"],
+                  "additionalProperties": false
+                }
+              },
+              "required": ["name", "quantity", "unit_price", "total_price", "confidence"],
+              "additionalProperties": false
+            }
+          },
+          "confidence": {
+            "type": "object",
+            "description": "How sure you are that each value of this receipt is exactly what is printed, as a number from 0.0 to 1.0. Judge only how readable the characters are and how clear their meaning is, never because the arithmetic fits. 0.95 to 1.0: every character is sharp and the meaning is clear. 0.80 to 0.94: one character is faint or could be mistaken for another. 0.50 to 0.79: you are choosing between two or more readings. Below 0.50: mostly a guess. 0.0: the value is null. Do not give 0.99 unless you checked every character.",
+            "properties": {
+              "date": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1,
+                "description": "0.0 to 1.0. Is every digit (or month name) of the day, month and year read exactly as printed? Lower it whenever any digit could be another one (3/8, 5/6, 6/8, 1/7, 0/8, 2/7), even if the date looks reasonable. 0.0 if the date is null."
+              },
+              "discount": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1,
+                "description": "0.0 to 1.0. Confidence in the discount amount, or in 'no discount' when it is 0. Lower it when two prices differ but no line labels the difference as a discount or subsidy."
+              },
+              "total": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1,
+                "description": "0.0 to 1.0. Is every digit and separator of the final amount paid right? Lower it when a digit is faint or when Total, cash tendered (Tunai) and change (Kembali) could be mixed up."
+              }
+            },
+            "required": ["date", "discount", "total"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["date", "discount", "total", "products", "confidence"],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": ["receipts"],
+  "additionalProperties": false
+}

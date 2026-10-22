@@ -1,0 +1,47 @@
+# The website (built React files) and, at /api/, the Flask API on one host: the browser sees one origin.
+server {
+    listen 8080;
+    server_name _;
+    root /usr/share/nginx/html;
+    server_tokens off;
+
+    # .mjs (the PDF viewer's worker) must be served as JavaScript, or the browser refuses to run it.
+    include /etc/nginx/mime.types;
+    types { text/javascript mjs; }
+
+    # The API takes up to 5 MB (MAX_CONTENT_LENGTH); a bit more here so the API itself answers 413.
+    client_max_body_size 6m;
+
+    # The website's files. The API gzips its own JSON (backend/app.py).
+    gzip on;
+    gzip_vary on;
+    gzip_comp_level 5;
+    gzip_min_length 1024;
+    gzip_types text/css text/javascript application/javascript image/svg+xml;
+
+    location /api/ {
+        proxy_pass ${API_UPSTREAM};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        # Long requests: an export of thousands of reports, a batch of reports whose files get downloaded.
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+        include /etc/nginx/snippets/security-headers.conf;
+    }
+
+    # Built files have a hash in their name (a new build gets new names), so they can be cached for good.
+    location /assets/ {
+        try_files $uri =404;
+        add_header Cache-Control "public, max-age=31536000, immutable";
+        include /etc/nginx/snippets/security-headers.conf;
+    }
+
+    # Every other path is a page of the website: send index.html, never cached, so a new build shows at once.
+    location / {
+        try_files $uri /index.html;
+        add_header Cache-Control "no-cache";
+        include /etc/nginx/snippets/security-headers.conf;
+    }
+}

@@ -1,0 +1,56 @@
+/* The receipt files of a report (components/FileViewer.tsx): the pages are shown in the photo viewer; this is
+   the loading state, a file that can't be shown, and the notes under the viewer */
+.file-viewer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--blue-space-2);
+}
+
+/* As tall as the photo viewer's frame, so the page does not jump when the file appears */
+.file-viewer__box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--blue-space-2);
+  min-height: var(--photo-viewer-min-height, 320px);
+  padding: var(--blue-space-4);
+  border: 1px solid var(--blue-color-border-default);
+  border-radius: var(--blue-radius-md);
+  background: var(--blue-color-surface-muted);
+  font-size: var(--blue-font-size-sm);
+  color: var(--blue-color-text-secondary);
+  text-align: center;
+}
+
+/* Under the pages of another file, a problem needs less room */
+.file-viewer .photo-viewer-group ~ .file-viewer__box--problem {
+  min-height: 0;
+}
+
+.file-viewer__title {
+  margin: 0;
+  font-weight: var(--blue-font-weight-semibold);
+  color: var(--blue-color-text-primary);
+  overflow-wrap: anywhere;
+}
+
+.file-viewer__message {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.file-viewer__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: var(--blue-space-3);
+  margin-top: var(--blue-space-1);
+}
+
+.file-viewer__note {
+  margin: 0;
+  font-size: var(--blue-font-size-xs);
+  color: var(--blue-color-text-secondary);
+}

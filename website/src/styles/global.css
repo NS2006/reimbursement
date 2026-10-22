@@ -1,0 +1,31 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+/* Keep the scrollbar's space, so the page does not shift when it stops scrolling (e.g. behind a dialog) */
+html {
+  scrollbar-gutter: stable;
+}
+
+body {
+  margin: 0;
+  font-family: "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-size: var(--blue-font-size-md);
+  line-height: var(--blue-line-height-normal);
+  color: var(--blue-color-text-primary);
+  background: var(--blue-color-surface-subtle);
+}
+
+.page-title {
+  margin: 0 0 var(--blue-space-2);
+  font-size: var(--blue-font-size-2xl);
+  font-weight: var(--blue-font-weight-semibold);
+}
+
+.page-subtitle {
+  margin: 0;
+  font-size: var(--blue-font-size-sm);
+  color: var(--blue-color-text-secondary);
+}

@@ -1,0 +1,72 @@
+# Local run of the deployed setup: the website on http://localhost:8080, the API, and a PostgreSQL of its own
+# (not your local database), filled with schema.sql and the dummy seeds on its first start.
+#   docker compose up --build                   website + API + database
+#   docker compose --profile ocr up --build     ... plus the OCR worker (needs ANTHROPIC_API_KEY in .env)
+#   docker compose down                         stop (the data is kept)
+#   docker compose down -v                      stop and delete the database and the stored files
+# Uses DB_NAME, DB_USER and DB_PASSWORD from .env for this database too. Production does not use this file.
+
+name: reimbursement
+
+x-backend: &backend
+  env_file: .env
+  environment:
+    DB_HOST: db
+    DB_PORT: "5432"
+    GCS_BUCKET: ""   # files in the storage volume: the containers have no GCS credentials
+  volumes:
+    - storage:/app/backend/storage
+    - ./backend/database/dummy_bbm_receipt:/app/backend/database/dummy_bbm_receipt:ro
+  depends_on:
+    db:
+      condition: service_healthy
+  restart: unless-stopped
+
+services:
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+      - ./backend/database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ./backend/database/seeds/app_user.sql:/docker-entrypoint-initdb.d/02-app_user.sql:ro
+      - ./backend/database/seeds/dummy_reimbursement.sql:/docker-entrypoint-initdb.d/03-dummy_reimbursement.sql:ro
+      - ./backend/database/seeds/dummy_bbm_ocr.sql:/docker-entrypoint-initdb.d/04-dummy_bbm_ocr.sql:ro
+      - ./backend/database/seeds/dummy_ocr_failure.sql:/docker-entrypoint-initdb.d/05-dummy_ocr_failure.sql:ro
+      - ./backend/database/seeds/dummy_comment.sql:/docker-entrypoint-initdb.d/06-dummy_comment.sql:ro
+      - ./backend/database/seeds/dummy_review_decision.sql:/docker-entrypoint-initdb.d/07-dummy_review_decision.sql:ro
+    ports:
+      - "127.0.0.1:5433:5432"   # optional, to look inside; 5433 so it doesn't clash with your local PostgreSQL
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  api:
+    <<: *backend
+    build: { context: ., target: api }
+    image: reimbursement-api
+
+  worker:
+    <<: *backend
+    build: { context: ., target: worker }
+    image: reimbursement-worker
+    profiles: [ocr]
+    stop_grace_period: 30s
+
+  web:
+    build: { context: ., target: web }
+    image: reimbursement-web
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on: [api]
+    restart: unless-stopped
+
+volumes:
+  db-data:
+  storage:

@@ -1,0 +1,36 @@
+/* A bar split by review status (components/StatusBar.tsx), and the dots of its legend */
+.status-bar {
+  display: flex;
+  gap: 2px;
+  width: 100%;
+  overflow: hidden;
+  border-radius: var(--blue-radius-pill);
+  background: var(--blue-color-surface-muted);
+}
+
+.status-bar--md {
+  height: 12px;
+}
+
+.status-bar--sm {
+  height: 8px;
+}
+
+.status-bar__part {
+  flex-basis: 0;
+  min-width: 4px;
+}
+
+.status-dot {
+  display: inline-block;
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+/* The same colours as the status cards on the BBM page */
+.status-dot--needs_review { background: var(--blue-color-feedback-error); }
+.status-dot--processing { background: var(--blue-color-neutral-400); }
+.status-dot--approved { background: var(--blue-color-feedback-success); }
+.status-dot--rejected { background: var(--blue-color-neutral-800); }

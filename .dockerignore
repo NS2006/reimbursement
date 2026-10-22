@@ -1,0 +1,35 @@
+# Secrets: never in an image
+.env
+.env.*
+
+# Tools and VCS
+.git
+.claude
+.vscode
+.idea
+
+# Built or installed again inside the image
+**/node_modules
+website/dist
+**/*.tsbuildinfo
+**/__pycache__
+**/*.py[cod]
+.venv
+venv
+.pytest_cache
+.mypy_cache
+.ruff_cache
+*.log
+
+# Data: large, and receipt photos can hold personal data
+backend/storage
+backend/database/dummy_bbm_receipt
+backend/jobs/bbm_ocr/images
+backend/jobs/bbm_ocr/results
+backend/jobs/bbm_ocr/results_*
+backend/jobs/bbm_ocr/ground_truth
+backend/jobs/bbm_ocr/comparison.txt
+
+# Not needed to run
+Database Design
+curl-testing

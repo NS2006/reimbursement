@@ -1,0 +1,39 @@
+.language-switch {
+  display: inline-flex;
+  flex: none;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--blue-color-border-default);
+  border-radius: var(--blue-radius-md);
+  background: var(--blue-color-surface-default);
+}
+
+.language-switch__option {
+  min-width: 32px;
+  min-height: 26px;
+  padding: 0 var(--blue-space-2);
+  border: 0;
+  border-radius: var(--blue-radius-sm);
+  background: transparent;
+  color: var(--blue-color-text-secondary);
+  font: inherit;
+  font-size: var(--blue-font-size-xs);
+  font-weight: var(--blue-font-weight-semibold);
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.language-switch__option:hover {
+  color: var(--blue-color-brand-primary);
+}
+
+.language-switch__option[aria-pressed="true"] {
+  background: var(--blue-color-brand-primary);
+  color: var(--blue-color-text-on-brand);
+  cursor: default;
+}
+
+.language-switch__option:focus-visible {
+  outline: 2px solid var(--blue-color-border-focus);
+  outline-offset: 1px;
+}

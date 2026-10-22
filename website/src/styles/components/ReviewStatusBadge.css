@@ -1,0 +1,9 @@
+/* Rejected is final, so it is dark rather than red: red means a report still needs someone */
+.review-status-badge--rejected {
+  background: var(--blue-color-neutral-800);
+  color: var(--blue-color-neutral-0);
+}
+
+.review-status-badge--rejected .blue-badge__dot {
+  background: currentColor;
+}

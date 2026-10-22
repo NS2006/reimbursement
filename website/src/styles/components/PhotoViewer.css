@@ -1,0 +1,261 @@
+.photo-viewer-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--blue-space-3);
+}
+
+.photo-viewer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--blue-space-2);
+}
+
+/* The area the photo is shown in. Its shape follows the photo (aspect-ratio is set from the photo once it
+   loads), between a height that is still useful when zoomed in and one that keeps the toolbar on screen.
+   A page can change both heights with --photo-viewer-min-height and --photo-viewer-max-height. */
+.photo-viewer__frame {
+  position: relative;
+  aspect-ratio: 3 / 4;
+  min-height: var(--photo-viewer-min-height, 320px);
+  max-height: var(--photo-viewer-max-height, clamp(320px, calc(100vh - 340px), 720px));
+  overflow: hidden;
+  border: 1px solid var(--blue-color-border-default);
+  border-radius: var(--blue-radius-md);
+  background: var(--blue-color-surface-muted);
+  cursor: zoom-in;
+  /* At full size one finger still scrolls the page; zoomed in, every touch moves the photo */
+  touch-action: pan-y;
+  user-select: none;
+}
+
+.photo-viewer__frame--zoomed {
+  cursor: grab;
+  touch-action: none;
+}
+
+.photo-viewer__frame--dragging {
+  cursor: grabbing;
+}
+
+.photo-viewer__frame:focus-visible {
+  outline: 2px solid var(--blue-color-border-focus);
+  outline-offset: 2px;
+}
+
+.photo-viewer__image {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  max-width: none;
+  /* Centered from the start, so the first placement does not slide in */
+  transform: translate(-50%, -50%);
+  transform-origin: center;
+  transition: transform 0.12s ease-out;
+  will-change: transform;
+}
+
+.photo-viewer__frame--dragging .photo-viewer__image {
+  transition: none;
+}
+
+.photo-viewer__message {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--blue-space-1);
+  margin: 0;
+  padding: var(--blue-space-4);
+  font-size: var(--blue-font-size-sm);
+  color: var(--blue-color-text-secondary);
+  text-align: center;
+}
+
+.photo-viewer__message-title {
+  margin: 0;
+  font-weight: var(--blue-font-weight-semibold);
+  color: var(--blue-color-text-primary);
+}
+
+.photo-viewer__message-link {
+  font-size: var(--blue-font-size-xs);
+  color: var(--blue-color-brand-primary);
+  overflow-wrap: anywhere;
+}
+
+/* Controls under the photo */
+.photo-viewer__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--blue-space-1);
+}
+
+.photo-viewer__tools {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.photo-viewer__tools .blue-button,
+.photo-viewer__open {
+  padding-inline: var(--blue-space-2);
+}
+
+.photo-viewer__zoom {
+  min-width: 56px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* "2 / 3" between the previous and next buttons */
+.photo-viewer__position {
+  min-width: 40px;
+  font-size: var(--blue-font-size-sm);
+  color: var(--blue-color-text-secondary);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.photo-viewer__divider {
+  width: 1px;
+  height: 20px;
+  margin: 0 var(--blue-space-1);
+  background: var(--blue-color-border-default);
+}
+
+.photo-viewer__icon {
+  display: block;
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Same look as a small ghost BlueButton, but a link (it opens or downloads the original file) */
+.photo-viewer__open {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--blue-space-1) var(--blue-space-3);
+  border-radius: var(--blue-radius-md);
+  color: var(--blue-color-brand-primary);
+  line-height: var(--blue-line-height-normal);
+}
+
+.photo-viewer__open:hover {
+  background: var(--blue-color-blue-50);
+}
+
+.photo-viewer__open:focus-visible {
+  outline: 2px solid var(--blue-color-border-focus);
+  outline-offset: 2px;
+}
+
+.photo-viewer__caption {
+  margin: 0;
+  font-size: var(--blue-font-size-xs);
+  color: var(--blue-color-text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.photo-viewer__name {
+  font-weight: var(--blue-font-weight-medium);
+  color: var(--blue-color-text-primary);
+}
+
+/* The hint that matches how the photo is used: mouse or touch screen */
+.photo-viewer__hint--touch {
+  display: none;
+}
+
+@media (pointer: coarse) {
+  .photo-viewer__hint--mouse {
+    display: none;
+  }
+
+  .photo-viewer__hint--touch {
+    display: inline;
+  }
+}
+
+/* Expanded: the photo covers the whole window, on a dark background */
+.photo-viewer--expanded {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  padding: var(--blue-space-4);
+  background: var(--blue-color-neutral-900);
+}
+
+body:has(.photo-viewer--expanded) {
+  overflow: hidden;
+}
+
+.photo-viewer--expanded .photo-viewer__frame {
+  flex: 1;
+  max-height: none;
+  border-color: transparent;
+  background: transparent;
+}
+
+.photo-viewer--expanded .photo-viewer__toolbar {
+  align-self: center;
+  padding: var(--blue-space-1) var(--blue-space-2);
+  border-radius: var(--blue-radius-md);
+  background: var(--blue-color-surface-default);
+}
+
+.photo-viewer--expanded .photo-viewer__caption,
+.photo-viewer--expanded .photo-viewer__name {
+  color: var(--blue-color-neutral-200);
+  text-align: center;
+}
+
+/* Several photos: thumbnails to pick one */
+.photo-viewer__thumbnails {
+  display: flex;
+  gap: var(--blue-space-2);
+  overflow-x: auto;
+  padding: 2px;
+  scrollbar-width: thin;
+}
+
+.photo-viewer__thumbnail {
+  flex: none;
+  width: 56px;
+  height: 56px;
+  padding: 0;
+  overflow: hidden;
+  border: 2px solid var(--blue-color-border-default);
+  border-radius: var(--blue-radius-md);
+  background: var(--blue-color-surface-muted);
+  cursor: pointer;
+}
+
+.photo-viewer__thumbnail img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.photo-viewer__thumbnail[aria-pressed="true"] {
+  border-color: var(--blue-color-brand-primary);
+}
+
+.photo-viewer__thumbnail:focus-visible {
+  outline: 2px solid var(--blue-color-border-focus);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .photo-viewer__image {
+    transition: none;
+  }
+}
