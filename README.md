@@ -1,251 +1,153 @@
-# Reimbursement: gas-station receipt validation
+# Reimbursement review
 
-An employee submits a reimbursement claim (date, products, quantities, prices, total). A validator must check
-that the claim matches the **gas-station receipt photo**. This project does that check automatically:
+An internal Blibli tool that checks employees' fuel (BBM) reimbursement claims against their receipts.
 
-1. **Extract** - an AI model reads the receipt photo and returns structured data (OCR).
-2. **Compare** - plain code compares the submitted data with the OCR field by field.
-3. **Decide** - harmless differences are approved, everything else is flagged for a person.
-   Plain arithmetic judges a single wrong *number*; every other difference goes to a person.
+Other systems (Darwinbox) send the reimbursement reports to an API. Claude reads each receipt file (OCR), and plain
+code compares what it read with what the employee submitted. A report whose receipt agrees is approved automatically;
+every other report goes to a reviewer, who approves or rejects it on the website.
 
-> **Principle: when in doubt, flag it.** A wrongly flagged receipt costs a person a few seconds.
-> Nothing is approved unless there is a clear reason.
+> **When in doubt, flag it.** A report flagged by mistake costs a reviewer a few seconds. Nothing is approved
+> automatically without a clear reason.
 
-Status: the extraction, evaluation and validation pipeline works from the command line.
-The web API (`py -m backend.app`, every endpoint is in [routes.py](backend/routes.py)) receives the reimbursement reports of
-other systems (`POST /api/reimbursements`; a BBM report has one file, which may show several receipts) and serves the review website: the development login, the reports with their OCR
-results (a page at a time: `GET /api/reimbursements?type=bbm&period=&status=&by=&q=&sort=&page=`; the counts per month
-and status: `GET /api/reimbursements/summary`; the codes of a list: `GET /api/reimbursements/codes`), comments (each
-reviewer can edit and delete only their own), the reviewers' decisions
-(`POST /api/reimbursements/<code>/decisions`: approve, reject with a reason, or take back), retrying the OCR on files it
-could not read (`POST /api/reimbursements/<code>/ocr/retry`, or for a whole list: `POST /api/reimbursements/ocr/retry`), an Excel export of a
-list (`POST /api/reimbursements/export?type=bbm`; both take the list's filter as their body), and the receipt files (`GET /api/attachments/<id>/file`). See [website/README.md](website/README.md).
-
-The file links in a report expire soon (Darwinbox's after 10 minutes), so `POST /api/reimbursements` downloads every
-file right away and keeps it in our file storage (a GCS bucket; a local folder in development) before saving the report;
-the website and the OCR read it from there. Each call queues the files of its new revisions for the OCR, as one OCR
-process. The OCR worker reads them one at a time and stores what it read and the comparison; leave it running next to
-the web API:
-
-```bash
-py -m backend.jobs.bbm_ocr.worker                  # add --once to stop when the queue is empty, --retry-failed to queue failed files again
-```
-
-Each report gets a **review status**: a reviewer's decision wins; otherwise a `matched` or `proceed` report is approved by
-the OCR (a reviewer can still reject it), unless the revision before was rejected, then it needs review again; a file
-the OCR couldn't read (after 3 tries) needs review too; the others stay `needs_review` or `processing` (the OCR has not
-read the file yet). Decisions are kept in `review_decision`, newest in force.
-
----
-
-## Quick start
-
-```bash
-pip install -r requirements.txt
-```
-
-Open [main.py](backend/main.py), set `MODE`, then run it from the repository root:
-
-```bash
-py -m backend.main
-```
-
-| `MODE` | What it does | Needs |
+| Part | What it is | Docs |
 |---|---|---|
-| `"extract"` | OCR every image in `images/` and save `results/batch_results.json` | The `claude` command logged in, see [Extraction](#1-extraction) |
-| `"evaluate"` | Measure OCR accuracy against `ground_truth/gt.json` | `results/batch_results.json` and the ground truth |
-| `"validate"` | Compare submitted data with the OCR and decide matched / proceed / needs_review | `results/batch_results.json` and the submitted data |
-
-A normal order is `extract`, then `evaluate`, then `validate`. Extraction costs tokens and takes minutes,
-so run it only when the images or the model change.
-
-The data folders named in this document (`images/`, `ground_truth/`, `results/`) are inside `backend/jobs/bbm_ocr/`.
-
-**Docker:** the [Dockerfile](Dockerfile) builds three images (`--target web`, `api`, `worker`);
-`docker compose up --build` runs them locally with a database of their own on http://localhost:8080 (see the
-comments in [docker-compose.yml](docker-compose.yml)).
-
----
-
-## Folder layout
-
-```
-reimbursement/
-├── requirements.txt                     # Python libraries
-├── .gitignore
-├── Database Design/                     # ERD (Visual Paradigm .vpp and an exported .jpg)
-├── website/                             # review website, React frontend (see website/README.md)
-└── backend/
-    ├── main.py                          # entry point with the three modes (py -m backend.main)
-    ├── app.py                           # web API for the website (py -m backend.app, http://127.0.0.1:5000/api)
-    ├── routes.py                        # every API endpoint: URL -> service function
-    ├── services/                        # handle the request, apply the rules, return JSON
-    ├── repositories/                    # SQL on the PostgreSQL tables
-    ├── database/                        # connection.py, schema.sql, seeds/
-    └── jobs/                            # one folder per batch job
-        └── bbm_ocr/                     # gas-station receipt OCR, evaluation and validation
-            ├── gas_station_receipt.schema.json  # the JSON shape the OCR must return (with confidence descriptions)
-            ├── images/                      # receipt photos and PDFs (up to 10 pages) named 1.jpg, 2.jpeg, 65.pdf, ... (the name is the image id; only 13 sample images are in git)
-            ├── ground_truth/gt.json         # the correct data for every image
-            ├── results/                     # everything the pipeline writes (current run)
-            │   ├── batch_results.json       #   OCR output
-            │   ├── batch_results_usage.json #   OCR token usage and time
-            │   ├── evaluation_report/       #   accuracy reports (.json, .txt, errors .csv)
-            │   ├── validation_results.json  #   full validation result per image
-            │   └── unmatched_cases.json     #   only the images that are not "matched"
-            ├── receipt_config.py            # paths and comparison settings
-            ├── receipt_extraction.py        # loops over all images (extract mode)
-            ├── results_<model>/             # finished runs kept for comparison: evaluation_report_<effort>_<retries>/
-            ├── comparison.py                # compares the runs in results_<model>/ (writes comparison.txt)
-            ├── receipt_ocr_haiku.py         # OCR with Claude through the Claude Code CLI
-            ├── receipt_evaluation.py        # accuracy against the ground truth
-            ├── receipt_validation.py        # comparison, arithmetic, statuses
-            ├── receipt_records.py           # submitted items -> validation input; OCR reading -> database rows
-            ├── worker.py                    # the OCR worker: reads the queued files (py -m backend.jobs.bbm_ocr.worker)
-            └── receipt_utils.py             # JSON load/save helpers
-```
+| [backend/](backend/) | Python: the web API (Flask), the OCR worker, the PostgreSQL schema | [backend/README.md](backend/README.md) |
+| [website/](website/) | React: the review website for reviewers, in Indonesian or English | [website/README.md](website/README.md) |
 
 ---
 
 ## How it works
 
 ```mermaid
-flowchart TD
-    A[Receipt photo] --> B[1. Extract<br/>the OCR model reads the photo]
-    B --> C{Do the numbers<br/>add up?}
-    C -- no --> B2[Read once more,<br/>keep the better result]
-    C -- yes --> D[OCR result<br/>results/batch_results.json]
-    B2 --> D
-    E[Employee's submitted data] --> F
-    D --> F[3. Validate<br/>pair receipts and compare field by field]
-    F --> G{Anything different?}
-    G -- no --> M[matched<br/>no warning]
-    G -- yes --> H[Decide each difference]
-    H --> P[proceed<br/>every difference was harmless]
-    H --> R[needs_review<br/>a person must check]
-    D --> V[2. Evaluate<br/>accuracy against ground truth]
-    GT[ground_truth/gt.json] --> V
+flowchart LR
+    D[Darwinbox] -- "POST /api/reimbursements" --> API[Web API]
+    API -- "downloads the receipt files" --> FS[(File storage<br/>GCS bucket)]
+    API -- "saves the report,<br/>queues its file" --> DB[(PostgreSQL)]
+    W[OCR worker] -- "next queued file" --> DB
+    W -- "reads the receipt<br/>with Claude" --> FS
+    W -- "reading and comparison" --> DB
+    R[Reviewers] --> WEB[Website] --> API
 ```
 
-### 1. Extraction
+1. **Receive.** Darwinbox sends reports in batches (about once a week). The API checks each report, downloads its
+   receipt file right away (Darwinbox's links expire after 10 minutes), keeps it in the file storage and saves the
+   report as a new revision. A report sent again with the same data stores nothing new.
+2. **Read.** The OCR worker takes the queued files one by one. Claude (through the Claude Code CLI) reads every
+   receipt on the file into structured data: date, products, liters, prices, totals.
+3. **Compare.** Plain code pairs the receipts with the submitted items and compares them field by field. A difference
+   that is only an OCR misread (the receipt's own arithmetic proves the submitted value right) is explained; every
+   other difference is flagged.
+4. **Decide.** No differences: approved (`matched`). Only explained misreads: approved (`proceed`). Anything else:
+   the report needs review.
+5. **Review.** Reviewers work through the reports that need review on the website. They see the receipt next to the
+   submitted data with every difference marked, then approve or reject with a reason. They can also comment,
+   spot-check the automatic approvals and export a list to Excel.
 
-[receipt_extraction.py](backend/jobs/bbm_ocr/receipt_extraction.py) loops over the images and calls `extract_receipts(image, schema)`
-from [receipt_ocr_haiku.py](backend/jobs/bbm_ocr/receipt_ocr_haiku.py), which runs Claude through the **Claude Code CLI** (`claude -p`).
-It needs `claude` installed, and logged in (`claude auth login`) or given an API key (`ANTHROPIC_API_KEY` in `.env`,
-as deployed); usage counts against that Claude account or key.
-`MODEL` and `EFFORT` at the top choose the model (Haiku 5.5 by default, Opus also works) and the effort.
+### Review statuses
 
-Each call gives the model the image and the schema, and reads the JSON answer.
-- One image can hold **several receipts**. The result is `{"receipts": [ ... ]}`, one entry per physical receipt.
-- Every field has a **confidence** from 0.0 to 1.0, defined in the schema descriptions.
-  Confidence is shown to reviewers as a hint only. It never decides anything, because wrong values were sometimes scored 0.99.
-- **Consistency check and retry.** After reading, `receipt_problems()` checks that the numbers agree with each other:
-  `quantity x unit_price` is within 150 rupiah of `total_price`, `sum(total_price) - discount` equals `total` (within 1 rupiah),
-  no unit price under 1000, and no empty date, total or product field.
-  If something is off, the image is read **once more** and the result with fewer problems is kept (`RETRIES = 1`).
-  Token usage of both runs is added together, with a `retries` count.
-- `extract_batch()` saves after every image, so a failure never erases the earlier results.
+| Status | Meaning |
+|---|---|
+| **Needs review** | A reviewer must decide: the OCR found differences it can't explain, or it couldn't read the file (after 3 tries) |
+| **Processing** | The OCR hasn't read the file yet |
+| **Approved** | The receipt matches (`matched`), the only differences are OCR misreads (`proceed`), or a reviewer approved it |
+| **Rejected** | A reviewer rejected it; Darwinbox can send a corrected report as a new revision |
 
-### 2. Evaluation ([receipt_evaluation.py](backend/jobs/bbm_ocr/receipt_evaluation.py))
+A reviewer's decision always wins and stays final; a later OCR reading never changes it. Every revision is judged on
+its own: a corrected report sent after a rejection is approved automatically when its receipt agrees (the website
+marks it as sent again after a rejection).
 
-Compares the OCR with the ground truth to tell you how good the OCR is, not to check a claim.
-Receipts are matched one-to-one by best overall fit, products by name, numbers with a small tolerance, dates after parsing
-(so `26/05/2026` equals `26-05-2026`). It writes the reports to `results/evaluation_report/`.
-
-To compare models and settings, keep each run in `results_<model>/evaluation_report_<effort>_<retries>/`
-(the `evaluation_report` folder plus `batch_results.json` and `batch_results_usage.json`) and run `py backend/jobs/bbm_ocr/comparison.py`.
-
-Best runs so far (63 images, 80 receipts): Claude Opus `max` and Claude Haiku `max` with 1 retry, both **99.29 %** of fields
-and **95 %** of receipts completely correct.
-The dates of images 17 and 40 are read wrong by every model.
-
-### 3. Validation ([receipt_validation.py](backend/jobs/bbm_ocr/receipt_validation.py))
-
-`validate_batch(submitted, ocr)` handles every image in this order:
-
-**a) Pair.** Each submitted receipt is matched to the OCR receipt it resembles most (one-to-one, best overall fit),
-so several receipts in one image work. Products inside a receipt are matched by how many of their four fields agree (name, quantity, unit price, total price), with name similarity as a tie-breaker.
-A receipt that exists on one side only is flagged.
-
-**b) Compare field by field in plain code.** Names ignore case, spaces and punctuation, dates are parsed, numbers use a tolerance.
-Fields that match need nothing more. A receipt with no differences is `matched`.
-
-**c) Decide every difference.**
-
-| What differs | Who decides | Result |
-|---|---|---|
-| **Product name** | Not judged | Flagged |
-| **One number** (`quantity`, `unit_price`, `total_price`, `total`, `discount`) | **Arithmetic in code** | Resolved if only the submitted value fits the other numbers on the receipt; otherwise flagged |
-| **Date** | Nobody can judge it | Flagged immediately |
-| **Several numbers** on one receipt | One misread cannot explain it | Flagged |
-| **Missing or extra product / receipt** | Not judged | Flagged |
-
-**d) Status.** A receipt is `matched` (no differences), `proceed` (every difference was resolved) or `needs_review`.
-The image is `needs_review` if any receipt needs review or any receipt is unpaired, else `proceed` if anything was resolved, else `matched`.
-
-Every difference carries a plain-language **hint** that tells the reviewer why it was flagged
-(for example *"The OCR total fits the other numbers; the submitted value does not. The submitted value is probably wrong."*),
-plus the OCR confidence as information.
-
-**Arithmetic tolerance.** `quantity x unit_price` is compared with `total_price` (allowed gap: 0.5 %, at least 100 rupiah),
-and `sum(total_price) - discount` with `total` (1 rupiah). These limits come from the real data
-(quantity x unit price is within 0.5 % of the printed amount for 99 % of products).
-
-**What it looks like on real data:** most images come out `matched`. The receipts that need a person are mostly
-**date** differences and product names written differently (for example `pertamax` vs `PERTAMAX Hose 10.3`).
+Every report belongs to the month it was **received** in (WIB), not the day the employee submitted it: a claim
+submitted on 31-10 and sent by Darwinbox on 2-11 counts for November.
 
 ---
 
-## Data formats
+## Getting started (local)
 
-**Submitted data** (the same shape as `ground_truth/gt.json`), keyed by image id:
+**You need:** Python 3.11, Node.js 24, PostgreSQL 15 (with `psql` on the PATH), and the Claude Code CLI (`claude`)
+logged in (`claude auth login`) for the OCR worker.
 
-```json
-{
-  "14": [
-    {
-      "date": "18-12-2025",
-      "discount": 0,
-      "total": 450000,
-      "products": [
-        { "name": "pertamax", "quantity": 35.5, "unit_price": 12300, "total_price": 436650 }
-      ]
-    }
-  ]
-}
+1. **Settings.** Copy [.env.copy](.env.copy) to `.env` and fill in the database settings (`DB_*`).
+2. **Python libraries.**
+   ```bash
+   pip install -r requirements.txt
+   ```
+3. **Database.** Create an empty database, then build the tables and fill them with sample data:
+   ```bash
+   py -m backend.database.reset rebuild
+   ```
+4. **API** (http://127.0.0.1:5000/api):
+   ```bash
+   py -m backend.app
+   ```
+5. **OCR worker**, in a second terminal:
+   ```bash
+   py -m backend.jobs.bbm_ocr.worker
+   ```
+6. **Website** (http://localhost:5173), in a third terminal; pick a user on the login page:
+   ```bash
+   cd website
+   npm install
+   npm run dev
+   ```
+
+To send reports the way Darwinbox does, run one of the PowerShell scripts in [curl-testing/](curl-testing/) while the
+API is running. The worker reads their receipts within a minute or so.
+
+After pulling a change to `backend/database/schema.sql`, run `py -m backend.database.reset rebuild` again; it
+deletes everything in your local database and seeds it again.
+
+### Run it with Docker
+
+```bash
+docker compose up --build                 # website, API and a database of its own: http://localhost:8080
+docker compose --profile ocr up --build   # the same, plus the OCR worker (needs ANTHROPIC_API_KEY in .env)
 ```
 
-**OCR data** (`results/batch_results.json`) has the same shape, with extra `confidence` blocks:
-
-```json
-{ "date": "18-12-2025", "discount": 0, "total": 436650, "confidence": { "date": 0.97, "discount": 0.99, "total": 0.99 },
-  "products": [ { "name": "PERTAMAX Hose 10.3", "quantity": 35.5, "unit_price": 12300, "total_price": 436650,
-                  "confidence": { "name": 0.84, "quantity": 0.99, "unit_price": 0.99, "total_price": 0.99 } } ] }
-```
-
-Rules: `discount` is `0` when there is none, other unreadable values are `null`, money is a plain number in rupiah,
-`quantity` is in liters. Until a real "employee submitted" file exists, validate mode uses `ground_truth/gt.json` as the submitted data
-(`SUBMITTED_PATH` in [main.py](backend/main.py)), so a validation run mostly shows that correct claims pass.
+The [Dockerfile](Dockerfile) builds three images: `web` (nginx serving the website and forwarding `/api`), `api`
+(gunicorn) and `worker` (the OCR worker with the Claude Code CLI). [docker-compose.yml](docker-compose.yml) is for
+trying them locally only; production runs the same images with its own settings.
 
 ---
 
 ## Configuration
 
-[.env.copy](.env.copy) lists every setting. Locally the OCR uses the logged-in `claude` command; deployed,
-set `ANTHROPIC_API_KEY` (the organization's Claude API key) and the `claude` command uses it instead of a login.
-The web API reads the database settings from `.env` in the repository root: `DB_HOST` (default `localhost`), `DB_PORT` (default `5432`), `DB_NAME`, `DB_USER`, `DB_PASSWORD`.
-`ATTACHMENT_HOSTS` lists the hosts `POST /api/reimbursements` may download receipt files from (`host` or `host:port`,
-comma-separated, e.g. `127.0.0.1:5000,files.example.com`); empty allows any host, so set it outside local development.
-`GCS_BUCKET` is the private Google Cloud Storage bucket the files are kept in (credentials: Application Default
-Credentials, e.g. Workload Identity; the service account needs to create and read objects). Without it, files are kept
-in `backend/storage/` (development).
+Every setting is an environment variable; locally they come from `.env` (template: [.env.copy](.env.copy)).
 
-Settings in the code you may want to tune:
-
-| Setting | Where | Value |
+| Variable | Used by | What it is |
 |---|---|---|
-| Which OCR module | the first import in `receipt_extraction.py` | `receipt_ocr_haiku` |
-| OCR model and effort | `MODEL`, `EFFORT` in the OCR module | e.g. `claude-haiku-5-5`, `max` |
-| Retry on inconsistent OCR | `RETRIES`, `PRODUCT_MATH_TOLERANCE`, `TOTAL_MATH_TOLERANCE`, `MIN_UNIT_PRICE` in the OCR module | 0 or 1, 150, 1, 1000 |
-| Arithmetic tolerance | `PRODUCT_REL_TOLERANCE`, `PRODUCT_ABS_FLOOR`, `RECEIPT_ABS_TOLERANCE` in `receipt_validation.py` | 0.5 %, floors, 1 rupiah |
-| Paths, matching modes | `receipt_config.py` | - |
+| `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` | API, worker | The PostgreSQL database (default host `localhost`, port `5432`) |
+| `ATTACHMENT_HOSTS` | API | The hosts receipt files may be downloaded from (`host` or `host:port`, comma-separated). Empty allows any host: local development only |
+| `GCS_BUCKET` | API, worker | The private Google Cloud Storage bucket for the receipt files. Empty: a local folder (`backend/storage/`). Access comes from the service account (Application Default Credentials), not a key |
+| `ANTHROPIC_API_KEY` | worker | The organization's Claude API key, used by the Claude Code CLI. Empty: your own `claude auth login` |
+
+---
+
+## Before going to production
+
+- **Sign-in through the Blibli gateway.** The login page is a development user picker without a password, and the
+  API takes the acting user from the request. The gateway must authenticate reviewers, and the API must take the
+  user from the gateway instead.
+- **`ATTACHMENT_HOSTS`** must list Darwinbox's file hosts only.
+- **Database connection:** use the Cloud SQL Auth Proxy, or a verified TLS connection (the driver doesn't check the
+  server's certificate by default).
+- **Timeouts:** the gateway and load balancer must allow at least 120 seconds for `POST /api/reimbursements` and the
+  Excel export.
+- **Planned hardening:** stricter checks on the file downloads (HTTPS only, no private addresses, an overall time
+  limit) and on the OCR prompt.
+
+---
+
+## Repository layout
+
+```
+reimbursement/
+├── backend/              # web API, OCR worker, database (backend/README.md)
+├── website/              # review website (website/README.md)
+├── Database Design/      # the ERD: Visual Paradigm project (.vpp) and an exported picture (.jpg)
+├── docker/nginx/         # nginx settings for the web image
+├── curl-testing/         # PowerShell scripts that send sample reports to a local API
+├── Dockerfile            # the web, api and worker images
+├── docker-compose.yml    # the whole setup on one machine, for trying it locally
+├── requirements.txt      # Python libraries
+└── .env.copy             # template of .env (no real values)
+```

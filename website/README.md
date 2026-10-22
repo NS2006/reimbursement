@@ -1,95 +1,85 @@
-# Reimbursement website
+# Website
 
-Internal website to review the reimbursement data (comparison, CRUD). It is the frontend only; everything backend lives
-in `../backend/`. Pages so far:
+The review website: reviewers check the reimbursement reports that the OCR couldn't approve, spot-check the ones it
+did, and approve or reject them. It's the frontend only; the data comes from the API in [../backend/](../backend/).
 
-- `/` home: what needs the reviewer (the reports that need review, by month; "Start reviewing" opens the oldest and
-  each decision opens the next one), and BBM at a glance (reports per review status and per month, each linking to the
-  list).
-- `/bbm` BBM (fuel) reports: a month picker ("Received in": all months or one month), a card per review status
-  (needs review, processing, approved, rejected; click to filter; approved ones also by how: matched, proceed or
-  by a reviewer, so the OCR's "proceed" approvals can be spot-checked), search by code or employee, sort by any column,
-  20 reports per page; the month, filter, search, sort and page are kept in the URL. "Export to Excel" downloads the
-  reports in the list (the chosen month, status and search, every page) as one sheet: a row per receipt, what was
-  submitted next to what the OCR read, with the differences highlighted, the status and who decided it and why.
-- `/bbm/<code>` one BBM report: a summary of what the OCR found and what to check, the receipt file next to it (a photo or a PDF, drawn page by page with pdf.js),
-  the submitted items and what the OCR read in the same columns, what changed since the revision before (and why it
-  was rejected), its history, and comments (edit and delete your own). The decision bar at the bottom approves or
-  rejects the current revision (a reason is required to reject), or takes a decision back; a toast offers Undo. In the
-  "Needs review" list, deciding opens the next report. Back, previous and next follow the list the report was opened from.
-
-The login page is a **development user picker**: you choose a user from the `app_user` table, with no password.
-Real sign-in will come from the Blibli gateway. The picked user is remembered in the browser (localStorage) until "Switch user".
-
-Stack: React 19 + TypeScript + Vite 6, styled with the Blibli BLUE3 tokens and components (`src/components/blue/`).
-
-## Run it (development)
-
-Start the backend API from the repository root (needs PostgreSQL running and the `DB_*` settings in `.env`,
-see the main README):
-
-```bash
-py -m backend.app
-```
-
-Then, from this folder:
+React 19 + TypeScript + Vite 6, styled with Blibli's BLUE3 design system, in Indonesian (default) or English.
 
 ```bash
 npm install
-npm run dev
+npm run dev        # http://localhost:5173 (the API must run on http://127.0.0.1:5000, see below)
+npm run build      # type-check and production build into dist/
+npm run lint
 ```
 
-Open http://localhost:5173. Vite forwards every `/api` call to the backend at http://127.0.0.1:5000.
+Start the API first, from the repository root: `py -m backend.app` (setup in the [main README](../README.md)).
+In development Vite forwards every `/api` call to it ([vite.config.ts](vite.config.ts)); in Docker nginx does.
 
-Other commands: `npm run build` (type-check and production build) and `npm run lint`.
+---
+
+## Pages
+
+| Path | Page |
+|---|---|
+| `/` | **Beranda (Home).** How many reports need review and in which months. **Mulai review** opens the oldest, and each decision moves on to the next. Also BBM at a glance: reports per status and per month. |
+| `/bbm` | **The BBM list.** A month picker, a card per review status (approved ones also split into matched, proceed and approved by a reviewer, to spot-check the OCR), search, sort by any column, 20 per page. The month, filter, search, sort and page live in the URL. **Ekspor ke Excel** downloads the whole list. |
+| `/bbm/<code>` | **One report.** What the OCR found and what to check, the receipt file (photo or PDF) next to the submitted items and what the OCR read, with each difference marked. Also what changed since the previous revision, the history and comments. The bar at the bottom approves or rejects (rejecting needs a reason) or takes a decision back; previous and next follow the list the report was opened from. |
+
+**Sign-in:** for now the login page is a development user picker (users from the `app_user` table, no password),
+remembered in the browser until **Ganti pengguna**. Real sign-in will come from the Blibli gateway.
+
+**Months:** a report belongs to the month it was received in, **in WIB** for every reviewer (as the backend). The
+list and the report page show only that month, not the day: Darwinbox sends reports in weekly batches, so the day
+they arrive says little.
+
+---
 
 ## Layout
 
 ```
-website/
-├── index.html
-├── vite.config.ts        # dev server settings and the /api proxy
-└── src/
-    ├── main.tsx          # entry point
-    ├── app/
-    │   ├── App.tsx       # app shell: login page until a user is picked, then the page for the URL
-    │   ├── i18n.ts       # the language (Indonesian or English, i18next): t(), setLanguage(), dateLocale()
-    │   └── router.ts     # small router (no library): useLocation, navigate, linkTo
-    ├── pages/            # route-level pages (LoginPage, HomePage, BbmPage, BbmReportPage, NotFoundPage)
-    ├── layouts/          # page frames (AppLayout.tsx: BlueNavbar with the links, the language and the current user)
-    ├── controllers/      # logic and data for the pages, one controller per page
-    │   ├── api.ts        #   general helpers for calling the backend (request, requestFile, jsonBody, errors, useApi)
-    │   ├── LoginController.ts  # login page: its backend calls, state and actions, plus the current user
-    │   ├── HomeController.ts   # home: what needs review (the review queue), BBM per status and month
-    │   ├── BbmController.ts    # BBM list: the reports, month, status filter, search, sort and page (kept in the URL), Excel export
-    │   └── BbmReportController.ts  # one BBM report: shown revision, differences per cell, revision changes, decisions, history, comments
-    ├── components/
-    │   ├── blue/         # BLUE3 components (BlueButton, BlueNavbar, BlueTable, BluePagination, BlueTag, BlueModal, BlueToast, ...), imported file by file
-    │   └── *.tsx         # app components built on them (CommentThread, OcrStatusBadge, ReviewStatusBadge, PhotoViewer, FileViewer, StatusBar, LanguageSwitch)
-    ├── locales/          # the texts: en/ and id/, one file per area (common, home, login, bbmList, report, components)
-    ├── styles/           # all CSS: BLUE3 tokens, global styles, and one file per component in the same
-    │                     #   folders as the code (styles/pages/LoginPage.css belongs to pages/LoginPage.tsx)
-    ├── types/            # shared types (User, reimbursements)
-    └── utils/            # display helpers (format.ts: rupiah, numbers, dates; ocrStatus.ts / reviewStatus.ts: status labels; bbmFields.ts: BBM field names; download.ts: save a file; pdfPages.ts: draw PDF pages)
+src/
+├── main.tsx              # entry point
+├── app/
+│   ├── App.tsx           # app shell: the login page until a user is picked, then the page for the URL
+│   ├── router.ts         # small router (no library): useLocation, navigate, linkTo
+│   └── i18n.ts           # the language: t(), setLanguage(), dateLocale()
+├── pages/                # one file per page, JSX only (HomePage, BbmPage, BbmReportPage, LoginPage, NotFoundPage)
+├── controllers/          # one controller per page: its data, state, actions and backend calls
+│   └── api.ts            #   the shared helpers for calling the backend (request, useApi, errorMessage, ...)
+├── layouts/AppLayout.tsx # the frame of every signed-in page: navbar, language switch, current user
+├── components/
+│   ├── blue/             # BLUE3 components (BlueButton, BlueTable, BlueModal, BlueToast, ...)
+│   └── *.tsx             # app components built on them (CommentThread, PhotoViewer, FileViewer, StatusBar, ...)
+├── locales/en/, id/      # every text, one file per area (common, home, login, bbmList, report, components)
+├── styles/               # all CSS, in the same folders as the code (styles/pages/BbmPage.css for pages/BbmPage.tsx)
+├── types/                # shared types
+└── utils/                # display helpers (format.ts: rupiah, numbers, dates, months; status labels; field names)
 ```
 
-A new navbar link is one entry in `navItems()`, and a new page one case in `routeOf()` and in `Page`, all in `src/app/App.tsx`.
+---
+
+## Conventions
+
+- **A page is three files:** `src/pages/<Name>Page.tsx` (JSX only), `src/controllers/<Name>Controller.ts` (its logic
+  and backend calls, through `request()` from `api.ts`) and `src/styles/pages/<Name>Page.css`. No barrel `index.ts`
+  files; import each file directly.
+- **A new page** is one case in `routeOf()` and in `Page` in [App.tsx](src/app/App.tsx); a new navbar link is one
+  entry in `navItems()` there.
+- **BLUE3:** use the `Blue*` components and the `--blue-*` CSS tokens, not raw colours or plain HTML controls.
+- **Formats** ([format.ts](src/utils/format.ts)): amounts `Rp 1.234.567` and numbers in Indonesian style, dates
+  `DD-MM-YYYY`, in both languages.
+
+---
 
 ## Languages
 
-The website is in Indonesian (the default) or English; the ID | EN switch in the navbar (and on the login page)
-is remembered in the browser. Every text is in `src/locales/<language>/<area>.ts` and read with `t()` from
-`src/app/i18n.ts`, e.g. `t("home:attention.start")` or `t("reports", { count })` (plurals: `key_one` / `key_other`).
-A new text goes in the English file first (its keys are the ones `t()` accepts, so a typo does not build) and
-then in the Indonesian one (it must have the same keys).
+Indonesian is the default; the **ID | EN** switch (navbar and login page) is remembered in the browser.
 
-- Technical words stay English in both: Reimbursement, OCR, BBM, Reviewer, Grand total, Proceed, Excel, PDF.
-- Amounts and numbers are Indonesian style (Rp 1.234.567) and dates DD-MM-YYYY in both; month and day names follow
-  the language.
-- The backend's error messages are English. In Indonesian the website shows its own text for the error code
-  (`errors.codes` in `common.ts`).
-- The Excel export stays English (it is made by the backend).
-
-New pages follow the same split: the page (JSX only) in `src/pages/<Name>Page.tsx`, its logic and its
-backend calls in `src/controllers/<Name>Controller.ts` (using `request()` from `api.ts`), and its CSS in
-`src/styles/pages/<Name>Page.css`.
+- Every text lives in `src/locales/<language>/<area>.ts` and is read with `t()` from `src/app/i18n.ts`:
+  `t("home:attention.start")`, or `t("reports", { count })` for plurals (`key_one` / `key_other`).
+- Add a new text to the English file first: its keys are the ones `t()` accepts, so a mistyped key doesn't build.
+  Then add it to the Indonesian file, which must have the same keys.
+- Technical words stay English in both languages: Reimbursement, OCR, BBM, Reviewer, Grand total, Proceed, Excel,
+  PDF. In Indonesian, reviewing is "review" (*perlu direview*, *Mulai review*), never *tinjau*.
+- The API's error messages are English. In Indonesian the website shows its own text for the error code
+  (`errors.codes` in `locales/id/common.ts`). The Excel export stays English (the backend makes it).
