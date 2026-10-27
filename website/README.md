@@ -83,4 +83,5 @@ Indonesian is the default; the **ID | EN** switch (navbar and login page) is rem
 - Technical words stay English in both languages: Reimbursement, OCR, BBM, Reviewer, Grand total, Proceed, Excel,
   PDF. In Indonesian, reviewing is "review" (*perlu direview*, *Mulai review*), never *tinjau*.
 - The API's error messages are English. In Indonesian the website shows its own text for the error code
-  (`errors.codes` in `locales/id/common.ts`). The Excel export stays English (the backend makes it).
+  (`errors.codes` in `locales/id/common.ts`). The Excel export is in Indonesian, whatever the website's language (the
+  backend makes it).

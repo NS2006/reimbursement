@@ -234,7 +234,7 @@ async function exportBbmReports(list: BbmList): Promise<{ blob: Blob; name: stri
     jsonBody("POST", { ...listParams(list), website_url: window.location.origin }),
   );
   const count = Number(file.headers.get("X-Export-Count"));
-  return { blob: file.blob, name: file.name ?? "BBM reimbursements.xlsx", count: Number.isInteger(count) ? count : 0 };
+  return { blob: file.blob, name: file.name ?? "Reimbursement BBM.xlsx", count: Number.isInteger(count) ? count : 0 };
 }
 
 /** What a list holds beyond the page on screen, e.g. "October 2026, every page" ("" for every month, one page). */

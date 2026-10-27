@@ -108,7 +108,7 @@ was saved comes back `unchanged`).
 | `POST /reimbursements/<code>/comments`, `PATCH` / `DELETE .../comments/<id>` | Comments; only the author edits or deletes |
 | `POST /reimbursements/<code>/ocr/retry` | Queue the report's failed files for the OCR again |
 | `POST /reimbursements/ocr/retry` | The same for every report in a list (up to 5,000) |
-| `POST /reimbursements/export` | The list as an Excel file (up to 5,000 reports) |
+| `POST /reimbursements/export` | An Excel file in Indonesian (up to 5,000 reports in all): *Perlu direview* and *Ditolak* (every report of the list's month and search with that status, whatever its status filter; one row per problem), then *Sesuai filter* (the list itself, one row per receipt) |
 | `GET /attachments/<id>/file` | A receipt file |
 | `GET /fuel-prices` | Every active fuel with its DKI Jakarta price per liter today (`price`, with its source), the different price before it (`previous`), the nearest price announced for a later day (`upcoming`) and every price change (`history`, newest first; a price equal to the one before it only goes on with it, so it is left out). Days are WIB (`today`). Each price says which refresh from the web stored it (`fuel_price_run_id`; empty for manual and seeded ones). Also the last refresh from the web (the prices it did not use, and why) and when the refresh button can be pressed again (a day after the last refresh) |
 | `POST /fuel-prices/refresh` | Queue a refresh of the fuel prices from the web (`{"user_email"}`): `201` with `{run}`; `409 refresh_active` while one is queued or running; `429 refresh_too_soon` (with `next_refresh_at`) within a day of the last refresh; `400 invalid_user` |

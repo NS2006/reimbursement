@@ -1,0 +1,11 @@
+$ngrok = 'https://wager-twice-upstate.ngrok-free.dev'
+(Get-Content -Raw -Encoding UTF8 curl-testing\curl-1.txt).Replace("-Uri 'http://127.0.0.1:5000/api/reimbursements'", "-Uri '$ngrok/api/reimbursements' -Headers @{'ngrok-skip-browser-warning'='1'}") | Invoke-Expression
+
+$ngrok = 'https://wager-twice-upstate.ngrok-free.dev'
+(Get-Content -Raw -Encoding UTF8 curl-testing\curl-2.txt).Replace("-Uri 'http://127.0.0.1:5000/api/reimbursements'", "-Uri '$ngrok/api/reimbursements' -Headers @{'ngrok-skip-browser-warning'='1'}") | Invoke-Expression
+
+$ngrok = 'https://wager-twice-upstate.ngrok-free.dev'
+(Get-Content -Raw -Encoding UTF8 curl-testing\curl-3.txt).Replace("-Uri 'http://127.0.0.1:5000/api/reimbursements'", "-Uri '$ngrok/api/reimbursements' -Headers @{'ngrok-skip-browser-warning'='1'}") | Invoke-Expression
+
+$ngrok = 'https://wager-twice-upstate.ngrok-free.dev'
+(Get-Content -Raw -Encoding UTF8 curl-testing\curl-4.txt).Replace("-Uri 'http://127.0.0.1:5000/api/reimbursements'", "-Uri '$ngrok/api/reimbursements' -Headers @{'ngrok-skip-browser-warning'='1'}") | Invoke-Expression

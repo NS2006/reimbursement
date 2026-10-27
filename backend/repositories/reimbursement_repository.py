@@ -523,6 +523,39 @@ def find_same_receipt(code):
     return matches, others
 
 
+def find_same_receipt_pairs(codes):
+    """The other reports claiming the same receipt as each of these reports (the stored pairs, see schema.sql), for
+    the Excel export: (pairs, others). pairs: [{reimbursement_code, other_code, earlier, file_name}], earlier as
+    _claimed_sql counts it, file_name: the report's first file with the same content as one of the other's (None when
+    they share an item's day, amount and volume instead); others: by code, the other reports with the list's columns
+    (as find_same_receipt)."""
+    if not codes:
+        return [], {}
+    with get_connection() as conn:
+        pairs = fetch_all(
+            conn,
+            """
+            SELECT p.reimbursement_code, p.other_code,
+                   (r2.received_at, r2.reimbursement_code) < (r.received_at, r.reimbursement_code) AS earlier,
+                   (SELECT a.name FROM attachment a JOIN bbm_receipt i ON i.id = a.bbm_receipt_id
+                    WHERE i.reimbursement_code = p.reimbursement_code
+                      AND a.sha256 IN (SELECT a2.sha256 FROM attachment a2
+                                       JOIN bbm_receipt i2 ON i2.id = a2.bbm_receipt_id
+                                       WHERE i2.reimbursement_code = p.other_code)
+                    ORDER BY a.id LIMIT 1) AS file_name
+            FROM same_receipt p
+            JOIN reimbursement_report r ON r.reimbursement_code = p.reimbursement_code
+            JOIN reimbursement_report r2 ON r2.reimbursement_code = p.other_code
+            WHERE p.reimbursement_code = ANY(:codes)
+            ORDER BY p.reimbursement_code, r2.received_at, p.other_code
+            """,
+            codes=list(codes),
+        )
+        other_codes = sorted({pair["other_code"] for pair in pairs})
+        others = {row["reimbursement_code"]: row for row in _list_rows(conn, other_codes)} if other_codes else {}
+    return pairs, others
+
+
 def find_claimed(codes):
     """Which of these reports claim a receipt an earlier report claimed, not as a resubmission (_claimed_sql): they
     need a reviewer. For the Excel export, which works out the statuses in Python."""

@@ -261,24 +261,14 @@ def add_same_receipt(report):
 
     Worked out on every read: a decision on the other report (or on this one) changes what it is."""
     matches, others = reimbursement_repository.find_same_receipt(report["reimbursement_code"])
-    rejected = report["decision"] is not None and report["decision"]["decision"] == "rejected"
     found = {}
     for match in matches:
         code = match["other_code"]
         other = others[code]
         entry = found.get(code)
         if entry is None:
-            same_employee = other["employee_no"] == report["employee_no"]
-            decision = _decision_of(other)
-            if match["earlier"]:
-                resubmission = same_employee and decision is not None and decision["decision"] == "rejected"
-                kind = "resubmission" if resubmission else "double_claim"
-            else:
-                kind = "resubmitted" if same_employee and rejected else "claimed_again"
             entry = found[code] = {
-                "reimbursement_code": code, "employee_no": other["employee_no"],
-                "employee_name": other["employee_name"], "received_at": other["received_at"],
-                "review_status": other["review_status"], "decision": decision, "kind": kind,
+                **_other_report(other), "kind": _same_receipt_kind(report, other, match["earlier"]),
                 "files": [], "numbers": [],
             }
         if match["how"] == "file":
@@ -291,6 +281,43 @@ def add_same_receipt(report):
     report["same_receipt"] = sorted(found.values(), key=lambda entry: (SAME_RECEIPT_KINDS.index(entry["kind"]),
                                                                        entry["received_at"]))
     report["double_claim"] = any(entry["kind"] == "double_claim" for entry in report["same_receipt"])
+
+
+def add_same_receipts(reports):
+    """add_same_receipt for many reports at once (the Excel export), without the matched numbers: each report (with
+    its decision in force) gets same_receipt, [{reimbursement_code, employee_no, employee_name, received_at,
+    review_status, decision, kind, file_name}], file_name being its file with the same content as the other report's
+    (None when they share an item's day, amount and volume instead). Leaves double_claim as it is."""
+    pairs, others = reimbursement_repository.find_same_receipt_pairs([report["reimbursement_code"] for report in reports])
+    by_code = defaultdict(list)
+    for pair in pairs:
+        by_code[pair["reimbursement_code"]].append(pair)
+    for report in reports:
+        report["same_receipt"] = [
+            {**_other_report(others[pair["other_code"]]),
+             "kind": _same_receipt_kind(report, others[pair["other_code"]], pair["earlier"]),
+             "file_name": pair["file_name"]}
+            for pair in by_code[report["reimbursement_code"]]
+        ]
+
+
+def _other_report(row):
+    """The other report claiming the same receipt, from its row of the list."""
+    return {"reimbursement_code": row["reimbursement_code"], "employee_no": row["employee_no"],
+            "employee_name": row["employee_name"], "received_at": row["received_at"],
+            "review_status": row["review_status"], "decision": _decision_of(row)}
+
+
+def _same_receipt_kind(report, other, earlier):
+    """What the other report (its row of the list) is to this report (with its decision in force): see
+    add_same_receipt. earlier: it was received before this one."""
+    same_employee = other["employee_no"] == report["employee_no"]
+    if earlier:
+        decision = _decision_of(other)
+        resubmission = same_employee and decision is not None and decision["decision"] == "rejected"
+        return "resubmission" if resubmission else "double_claim"
+    rejected = report["decision"] is not None and report["decision"]["decision"] == "rejected"
+    return "resubmitted" if same_employee and rejected else "claimed_again"
 
 
 def _decision_of(row):

@@ -7,7 +7,7 @@ Every value from the database is written with put(), which keeps text as text: a
 
 from copy import copy
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 
 from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
@@ -59,6 +59,7 @@ FMT = {
     "date": "dd-mm-yyyy",
     "datetime": "dd-mm-yyyy hh:mm",
     "month": "mmmm yyyy",
+    "month_id": "[$-421]mmmm yyyy",  # the month's name in Indonesian ("Oktober 2026"), whatever Excel's language
 }
 
 
@@ -97,6 +98,19 @@ def put(cell, value):
         cell.data_type = "s"
     else:
         cell.value = value
+
+
+def link_text(text, linked):
+    """The text with only `linked` (e.g. a report code in a sentence) looking like a link: blue and underlined, the
+    rest as plain text. For a cell with a link: Excel links the whole cell, so this is only how it looks."""
+    before, found, after = (ILLEGAL_CHARACTERS_RE.sub("", part) for part in text.partition(linked))
+    # A part of only spaces makes Excel refuse to open the file (see key)
+    if not found or (before and not before.strip()) or (after and not after.strip()):
+        return text
+    plain = InlineFont(rFont=FONT_NAME, sz=11, color=TEXT)
+    link = InlineFont(rFont=FONT_NAME, sz=11, color=BLUE, u="single")
+    return CellRichText([block for block in (TextBlock(plain, before) if before else None, TextBlock(link, found),
+                                             TextBlock(plain, after) if after else None) if block])
 
 
 def title_block(ws, title, subtitle, column=1):
@@ -154,8 +168,9 @@ def table(ws, columns, rows, header_row, empty_text, *, bands=None, totals=None,
             previous = column.group
         ws.row_dimensions[header_row - 1].height = 20
 
+    widths = _fitting_widths(columns, rows, totals)
     for index, column in enumerate(columns, start=1):
-        ws.column_dimensions[get_column_letter(index)].width = column.width
+        ws.column_dimensions[get_column_letter(index)].width = widths[index - 1]
         cell = ws.cell(row=header_row, column=index)
         put(cell, column.header)
         cell.font = Font(name=FONT_NAME, size=11, bold=True, color="FFFFFF")
@@ -233,6 +248,60 @@ def table(ws, columns, rows, header_row, empty_text, *, bands=None, totals=None,
     ws.sheet_properties.pageSetUpPr.fitToPage = True
     ws.print_title_rows = f"{header_row - 1 if any(column.group for column in columns) else header_row}:{header_row}"
     return last_row
+
+
+MAX_TEXT_WIDTH = 60  # a longer text in a column without wrapping runs into its neighbour instead of widening it more
+
+
+def _fitting_widths(columns, rows, totals):
+    """Each column's width: its own, or wider so every value fits (Excel shows #### for a number or date that doesn't,
+    and cuts off text). Text in a wrapping column (and the header, which wraps) only needs its longest word to fit, so
+    no word is broken; a total (SUBTOTAL) counts as the sum of its column."""
+    # The header's filter button takes about 2 more
+    widths = [max(column.width, _width(_longest_word(column.header), bold=True) + 2) for column in columns]
+    sums = [0.0] * len(columns)
+    for values in rows:
+        for index, (column, value) in enumerate(zip(columns, values)):
+            styled = value if isinstance(value, Styled) else Styled(value)
+            if styled.value is None:
+                continue
+            if isinstance(styled.value, (str, CellRichText)):
+                text = str(styled.value)
+                characters = _longest_word(text) if column.wrap else _shown_length(text, None)
+                widths[index] = max(widths[index], min(_width(characters, styled.bold), MAX_TEXT_WIDTH))
+                continue
+            if isinstance(styled.value, (int, float, Decimal)) and not isinstance(styled.value, bool):
+                sums[index] += abs(float(styled.value))
+            widths[index] = max(widths[index], _width(_shown_length(styled.value, styled.fmt or column.fmt), styled.bold))
+    for index, total in (totals or {}).items():
+        if isinstance(total, str) and total.startswith("="):
+            column = columns[index - 1]
+            widths[index - 1] = max(widths[index - 1], _width(_shown_length(sums[index - 1], column.fmt), bold=True))
+    return widths
+
+
+def _longest_word(text):
+    return max((len(word) for word in text.split()), default=0)
+
+
+def _width(characters, bold=False):
+    """The column width (Excel counts it in Calibri digits) that holds this many characters of Segoe UI 11, a little
+    wider than Calibri, with the cell's indent on one side and a margin."""
+    return round(characters * (1.3 if bold else 1.2) + 3, 1)
+
+
+def _shown_length(value, fmt):
+    """About how many characters a value takes as Excel shows it with its number format ("Rp 1.358.170",
+    "27-10-2026 09:57", "September 2026")."""
+    if isinstance(value, str):
+        return max((len(line) for line in value.split("\n")), default=0)
+    if isinstance(value, (datetime, date)):
+        return 14 if fmt and "mmmm" in fmt else len(fmt or "dd-mm-yyyy")
+    if isinstance(value, (int, float, Decimal)) and not isinstance(value, bool):
+        number = abs(float(value))
+        shown = f"{number:,.3f}".rstrip("0").rstrip(".") if fmt and ".0" in fmt else f"{number:,.0f}"
+        return len(shown) + (1 if value < 0 else 0) + (3 if fmt and '"Rp' in fmt else 0)
+    return len(str(value))
 
 
 def _note(text):
