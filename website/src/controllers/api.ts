@@ -89,7 +89,7 @@ export function jsonBody(method: string, body: object): RequestInit {
   return { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
 }
 
-/** The backend's error answer: {"error": "not_found", "message": "No reimbursement with code RB-1."} */
+/** The backend's error answer: {"error": "not_found", "message": "No reimbursement with code EREP_1."} */
 function errorBodyText(body: unknown, field: "error" | "message"): string | null {
   if (typeof body === "object" && body !== null && field in body) {
     const value = (body as Record<string, unknown>)[field];

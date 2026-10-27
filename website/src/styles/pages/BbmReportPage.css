@@ -109,75 +109,6 @@ a.bbm-report__pager-link:focus-visible {
   white-space: nowrap;
 }
 
-/* What changed since the revision before: a row per change, with its value then and now */
-.bbm-report__changes {
-  padding: var(--blue-space-3) var(--blue-space-4);
-  border: 1px solid var(--blue-color-blue-100);
-  border-radius: var(--blue-radius-md);
-  background: var(--blue-color-blue-50);
-  font-size: var(--blue-font-size-sm);
-}
-
-.bbm-report__changes-title {
-  display: block;
-  font-weight: var(--blue-font-weight-semibold);
-  color: var(--blue-color-blue-700);
-}
-
-/* "Nothing in the items, the total or the files." under the title */
-.bbm-report__changes .bbm-report__muted {
-  display: block;
-  margin-top: var(--blue-space-1);
-}
-
-.bbm-report__changes-scroll {
-  margin-top: var(--blue-space-2);
-  overflow-x: auto;
-}
-
-.bbm-report__changes-table {
-  border-collapse: collapse;
-  font-variant-numeric: tabular-nums;
-}
-
-.bbm-report__changes-table th,
-.bbm-report__changes-table td {
-  padding: var(--blue-space-1) var(--blue-space-6) var(--blue-space-1) 0;
-  text-align: left;
-  vertical-align: top;
-  overflow-wrap: anywhere;
-}
-
-.bbm-report__changes-table thead th {
-  font-size: var(--blue-font-size-xs);
-  font-weight: var(--blue-font-weight-semibold);
-  color: var(--blue-color-text-secondary);
-  white-space: nowrap;
-}
-
-.bbm-report__changes-table tbody tr {
-  border-top: 1px solid var(--blue-color-blue-100);
-}
-
-.bbm-report__changes-table tbody th {
-  font-weight: var(--blue-font-weight-regular);
-  color: var(--blue-color-text-primary);
-}
-
-.bbm-report__changes-before {
-  color: var(--blue-color-text-secondary);
-}
-
-.bbm-report__changes-after {
-  font-weight: var(--blue-font-weight-semibold);
-  color: var(--blue-color-text-primary);
-}
-
-.bbm-report__changes-table .bbm-report__changes-arrow {
-  padding-right: var(--blue-space-3);
-  color: var(--blue-color-text-secondary);
-}
-
 /* The workspace: summary and tables on the right, the photo on the left (in view while scrolling).
    In the page the summary comes first, so on narrow screens it is the first thing shown. */
 .bbm-report__grid {
@@ -392,29 +323,12 @@ a.bbm-report__pager-link:focus-visible {
   text-underline-offset: 3px;
 }
 
-.bbm-side__note {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--blue-space-1);
-  font-size: var(--blue-font-size-xs);
-  color: var(--bbm-side-color);
-}
-
-.bbm-side--fits .bbm-side__note {
-  color: var(--blue-color-feedback-success);
-}
-
-.bbm-side__note .bbm-report__icon {
-  flex: none;
-  width: 14px;
-  height: 14px;
-  margin-top: 1px;
-}
-
+/* Why, under both values: which one the receipt's other numbers support, and what the slip looks like */
 .bbm-difference__hint {
   margin: var(--blue-space-2) 0 0;
   font-size: var(--blue-font-size-sm);
-  color: var(--blue-color-text-secondary);
+  line-height: 1.5;
+  color: var(--blue-color-text-primary);
 }
 
 /* Cards with a table: the table reaches the card's edges */
@@ -545,6 +459,53 @@ a.bbm-report__pager-link:focus-visible {
   color: var(--blue-color-text-secondary);
 }
 
+/* The price per liter of the submitted items: not sent, worked out from the amount and the volume */
+.bbm-report__computed {
+  font-size: var(--blue-font-size-xs);
+  font-weight: var(--blue-font-weight-regular);
+  color: var(--blue-color-text-secondary);
+}
+
+.bbm-report__cell--computed {
+  color: var(--blue-color-text-secondary);
+}
+
+/* A computed price that differs from the one on the receipt reads as a value to check */
+.bbm-report__cell--computed.bbm-report__cell--differs {
+  color: var(--blue-color-text-primary);
+}
+
+/* The fuel price card: the fuel price page's price of each item's fuel, next to the worked-out price per liter */
+.bbm-report__fuel-name {
+  font-weight: var(--blue-font-weight-medium);
+}
+
+.bbm-report__fuel-value {
+  font-size: var(--blue-font-size-md);
+  font-weight: var(--blue-font-weight-medium);
+  font-variant-numeric: tabular-nums;
+  color: var(--blue-color-text-primary);
+}
+
+.bbm-report__fuel-missing {
+  color: var(--blue-color-text-secondary);
+}
+
+.bbm-report__fuel-gap {
+  font-size: var(--blue-font-size-xs);
+  font-weight: var(--blue-font-weight-medium);
+  color: var(--blue-color-feedback-warning-text);
+  white-space: normal;
+}
+
+/* The receipt files of an item, under its id (a report with several files) */
+.bbm-report__item-files {
+  font-size: var(--blue-font-size-xs);
+  color: var(--blue-color-text-secondary);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 .bbm-report__cell--differs,
 .blue-table__foot-cell.bbm-report__cell--differs {
   background: var(--blue-color-feedback-warning-surface);
@@ -606,7 +567,6 @@ a.bbm-report__pager-link:focus-visible {
 .bbm-decision--attention { --bbm-decision-color: var(--blue-color-feedback-error); }
 .bbm-decision--approved { --bbm-decision-color: var(--blue-color-feedback-success); }
 .bbm-decision--rejected { --bbm-decision-color: var(--blue-color-neutral-800); }
-.bbm-decision--old { --bbm-decision-color: var(--blue-color-brand-primary); }
 
 .bbm-decision__icon {
   display: inline-flex;
@@ -808,6 +768,108 @@ body:has(.bbm-decision) .blue-toast-region {
   border-left: 2px solid var(--blue-color-border-default);
   color: var(--blue-color-text-primary);
   overflow-wrap: anywhere;
+}
+
+/* Above the OCR's differences when the headline is a double claim */
+.bbm-report__summary-subtitle {
+  margin: var(--blue-space-4) 0 0;
+  font-size: var(--blue-font-size-sm);
+  font-weight: var(--blue-font-weight-semibold);
+  color: var(--blue-color-text-primary);
+}
+
+/* The same receipt in other reports: one block per report; a double claim (the problem) marked red on its left.
+   The summary's "compare" button scrolls to it: below the navbar */
+.bbm-report__same {
+  scroll-margin-top: 80px;
+}
+
+.bbm-same {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.bbm-same__item {
+  padding: var(--blue-space-3) var(--blue-space-4);
+  border-left: 4px solid transparent;
+}
+
+.bbm-same__item + .bbm-same__item {
+  border-top: 1px solid var(--blue-color-border-default);
+}
+
+.bbm-same__item--problem {
+  border-left-color: var(--blue-color-feedback-error);
+  background: var(--blue-color-feedback-error-surface);
+}
+
+.bbm-same__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--blue-space-2);
+}
+
+.bbm-same__kind {
+  font-size: var(--blue-font-size-xs);
+  font-weight: var(--blue-font-weight-semibold);
+  color: var(--blue-color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.bbm-same__kind--problem {
+  color: var(--blue-color-feedback-error-hover);
+}
+
+.bbm-same__code {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: var(--blue-font-weight-semibold);
+}
+
+.bbm-same__code .bbm-report__icon {
+  width: 14px;
+  height: 14px;
+}
+
+.bbm-same__text {
+  margin: var(--blue-space-1) 0 0;
+  font-size: var(--blue-font-size-sm);
+  color: var(--blue-color-text-primary);
+}
+
+/* Why it was rejected: a resubmission's reviewer checks it was fixed */
+.bbm-same__reason {
+  display: block;
+  margin-top: var(--blue-space-1);
+  padding-left: var(--blue-space-2);
+  border-left: 2px solid var(--blue-color-border-default);
+  font-size: var(--blue-font-size-sm);
+  overflow-wrap: anywhere;
+}
+
+.bbm-same__facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--blue-space-1) var(--blue-space-4);
+  margin: var(--blue-space-2) 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--blue-font-size-sm);
+  color: var(--blue-color-text-secondary);
+}
+
+/* Another employee sent the same receipt: worth a second look whatever happened to that report */
+.bbm-same__other-employee {
+  font-weight: var(--blue-font-weight-semibold);
+  color: var(--blue-color-feedback-warning-text);
+}
+
+.bbm-same__evidence {
+  color: var(--blue-color-text-primary);
 }
 
 /* Loading and errors */

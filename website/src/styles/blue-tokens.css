@@ -42,6 +42,7 @@
   --blue-color-feedback-warning-surface: #fff8e1;
   --blue-color-feedback-error-hover: #c62828;
   --blue-color-feedback-error-surface: #fdecea;
+  --blue-color-feedback-success-surface: #e8f5e9;
   --blue-color-overlay: rgba(33, 37, 41, 0.5);
 
   /* Spacing (4px grid) */

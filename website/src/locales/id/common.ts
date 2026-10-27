@@ -8,10 +8,12 @@ const common: Translation<typeof en> = {
   nav: {
     home: "Beranda",
     bbm: "BBM",
+    fuelPrices: "Harga BBM",
   },
   title: {
     home: "Beranda",
     bbm: "BBM",
+    fuelPrices: "Harga BBM",
     report: "{{code}} · BBM",
     notFound: "Halaman tidak ditemukan",
     signIn: "Masuk",
@@ -43,7 +45,7 @@ const common: Translation<typeof en> = {
     processing: {
       label: "Diproses",
       hint: "OCR sedang membacanya",
-      meaning: "OCR sedang membaca file struk. Setelah terbaca, hasilnya langsung dibandingkan dengan data yang dikirim.",
+      meaning: "OCR sedang membaca file struk. Setelah terbaca, hasilnya langsung dibandingkan dengan data yang disubmit.",
     },
     approved: {
       label: "Disetujui",
@@ -53,7 +55,7 @@ const common: Translation<typeof en> = {
     rejected: {
       label: "Ditolak",
       hint: "Ditolak oleh reviewer",
-      meaning: "Reviewer menolak laporan ini. Laporan yang sudah diperbaiki bisa dikirim lagi sebagai revisi baru.",
+      meaning: "Reviewer menolak laporan ini. Laporan yang sudah diperbaiki bisa disubmit lagi dengan kode baru.",
     },
   },
   ocrStatus: {
@@ -66,23 +68,23 @@ const common: Translation<typeof en> = {
       label: "OCR gagal membaca",
       hint: "Reviewer harus memeriksa file",
       meaning:
-        "OCR tidak bisa membaca file struk, jadi tidak ada yang dibandingkan: reviewer harus mencocokkannya dengan data yang dikirim.",
+        "OCR tidak bisa membaca file struk, jadi tidak ada yang dibandingkan: reviewer harus mencocokkannya dengan data yang disubmit.",
     },
     processing: {
       label: "Diproses",
       hint: "OCR sedang membacanya",
-      meaning: "OCR sedang membaca file struk. Setelah terbaca, hasilnya langsung dibandingkan dengan data yang dikirim.",
+      meaning: "OCR sedang membaca file struk. Setelah terbaca, hasilnya langsung dibandingkan dengan data yang disubmit.",
     },
     proceed: {
       label: "Proceed",
       hint: "Perbedaannya hanya salah baca OCR",
       meaning:
-        "OCR menemukan perbedaan, tetapi semuanya salah baca OCR: angka lain di struk membuktikan nilai yang dikirim.",
+        "OCR menemukan perbedaan, tetapi semuanya salah baca OCR: angka lain di struk membuktikan nilai yang disubmit.",
     },
     matched: {
       label: "Sesuai",
       hint: "Struk sesuai",
-      meaning: "File struk sesuai dengan data yang dikirim.",
+      meaning: "File struk sesuai dengan data yang disubmit.",
     },
   },
   approvedBy: {
@@ -91,6 +93,10 @@ const common: Translation<typeof en> = {
     reviewer: { label: "Oleh reviewer", text: "Oleh reviewer" },
   },
   needsReviewReason: {
+    duplicate: {
+      label: "Kemungkinan klaim ganda",
+      text: "Laporan yang diterima lebih dulu mengklaim struk yang sama (file yang sama, atau tanggal, total, dan volume yang sama)",
+    },
     differences: {
       label: "Perbedaan",
       text: "OCR membaca file struk dan menemukan perbedaan yang tidak bisa dijelaskannya",
@@ -152,7 +158,8 @@ const common: Translation<typeof en> = {
       nothing_failed: "OCR tidak lagi gagal pada laporan ini: laporan ini sudah diulang.",
       nothing_to_reopen: "Tidak ada keputusan di laporan ini yang bisa dibatalkan.",
       reason_required: "Tuliskan alasan laporan ini ditolak.",
-      revision_changed: "Revisi baru laporan ini masuk. Periksa dulu sebelum memutuskan.",
+      refresh_active: "Pembaruan harga BBM sedang dalam antrean atau berjalan.",
+      refresh_too_soon: "Harga BBM baru saja diperbarui. Coba lagi nanti.",
       too_many_reports: "Daftar ini berisi lebih dari 5.000 laporan. Pilih satu bulan atau persempit pencarian.",
     },
   },

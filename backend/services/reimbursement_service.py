@@ -5,45 +5,48 @@ import re
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from urllib.parse import urlsplit
 
 from flask import jsonify, request
 
-from backend.jobs.bbm_ocr.receipt_config import MAX_PDF_BYTES
 from backend.repositories import comment_repository, reimbursement_repository
-from backend.services import file_storage, report_filter
+from backend.services import file_storage, fuel_price_service, report_filter
 from backend.services.file_download import EXTENSIONS, DownloadError, download
 from backend.services.json_values import to_json
 
 log = logging.getLogger(__name__)
 
-MAX_REPORTS_PER_REQUEST = 100
-DOWNLOADS_AT_ONCE = 8  # files of one request downloaded and stored in parallel
+# For now (the trial with Darwinbox) a request has no limit on its reports, the files of an item or their sizes;
+# limits come back later. A PDF the OCR can't read whole (receipt_config) is stored, and its OCR fails for the
+# reviewer to check it by hand.
+DOWNLOADS_AT_ONCE = 16  # files of one request downloaded and stored in parallel
 PAGE_SIZE = 20  # reports on a page of the list (as the website's PAGE_SIZE)
 MAX_PAGE_SIZE = 100
 MAX_LIST_CODES = 5000  # the codes a list gives for previous / next on the report pages
 
-# One status for a revision, from the newest OCR row of each of its photos; the first that applies wins:
-# a photo the OCR could not read (failed), a photo that needs a reviewer, a photo still queued or being read
+# One status for a report, from the newest OCR row of each of its files; the first that applies wins:
+# a file the OCR could not read (failed), a file that needs a reviewer, a file still queued or being read
 # (processing), then harmless differences, then a match.
 OCR_STATUS_ORDER = ["failed", "needs_review", "processing", "proceed", "matched"]
 
-# What is left to do with a revision (its review status): needs_review, processing (the OCR is reading it),
+# What is left to do with a report (its review status): needs_review, processing (the OCR is reading it),
 # approved or rejected.
 REVIEW_STATUSES = ["needs_review", "processing", "approved", "rejected"]
 
 
 def store_reimbursements():
-    """POST /api/reimbursements: store every report in the request as a new revision.
+    """POST /api/reimbursements: store every report in the request that is new. A request may hold any number of
+    reports, and its body may be any size (backend/app.py).
 
-    Each report is checked and saved on its own, so one bad report does not block the others.
+    Each report is checked and saved on its own, so one bad report does not block the others. A report is stored
+    once and never changed (a rejected report comes back under a new code): its code sent again with the same data
+    and files stores nothing ("unchanged"), whatever the links; with other data it is rejected.
     The links of the files expire soon (Darwinbox's after 10 minutes), so every file is downloaded now and kept in
     our file storage (file_storage) before its report is saved; a report whose file can't be downloaded is rejected,
     to be sent again with a new link. When the file storage itself can't be used, nothing is saved (503).
-    Sending a report again is safe: the same data and files store nothing new ("unchanged"), whatever the links.
-    The OCR does not run here: the file of every new revision is queued, in one OCR process for this request,
-    and the OCR worker (backend/jobs/bbm_ocr/worker.py) reads it soon after.
+    The OCR does not run here: the files of every new report are queued, in one OCR process for this request,
+    and the OCR worker (backend/jobs/bbm_ocr/worker.py) reads them soon after.
     """
     try:
         body = json.loads(request.get_data(), parse_float=Decimal, parse_constant=_reject_constant)
@@ -53,11 +56,9 @@ def store_reimbursements():
     reports = body.get("reimbursements") if isinstance(body, dict) else None
     if not isinstance(reports, list) or not reports:
         return _body_error("invalid_body", 'Send a JSON object like {"reimbursements": [ ... ]} with at least one report.')
-    if len(reports) > MAX_REPORTS_PER_REQUEST:
-        return _body_error("too_many_reports", f"Send at most {MAX_REPORTS_PER_REQUEST} reports per request.")
 
     results = [None] * len(reports)
-    to_save = []  # (index, report, payload hash)
+    to_save = []  # (index, report)
     seen_codes = set()
     for index, raw in enumerate(reports):
         report, errors = validate_report(raw)
@@ -88,9 +89,11 @@ def store_reimbursements():
                               "status": "rejected", "errors": failed[index]}
     to_save = [(index, report, payload_hash(report)) for index, report in to_save if index not in failed]
 
-    outcomes = reimbursement_repository.save_revisions([(report, digest) for _, report, digest in to_save])
+    outcomes = reimbursement_repository.save_reports([(report, digest) for _, report, digest in to_save])
     for (index, report, _), outcome in zip(to_save, outcomes):
         results[index] = {"index": index, "reimbursement_code": report["reimbursement_code"], **outcome}
+    if any(outcome["status"] == "created" for outcome in outcomes):
+        fuel_price_service.queue_daily_refresh()  # a new batch: the fuel prices are checked once a day
 
     rejected = sum(result["status"] == "rejected" for result in results)
     return jsonify(received=len(results), accepted=len(results) - rejected, rejected=rejected, results=results), 202
@@ -101,56 +104,48 @@ def store_reimbursements():
 # ---------------------------------------------------------------------------
 
 def list_reimbursements():
-    """GET /api/reimbursements?type=bbm&period=2026-10&status=approved&by=proceed&q=RB-0&sort=-total&tz=420&page=2:
-    one page of the report list (the filter: see report_filter), each report with its current revision, its OCR and
-    review status. page_size: the reports on a page (default 20, at most 100). A page past the end of the list gives
-    its last page.
+    """GET /api/reimbursements?period=2026-10&status=approved&by=proceed&q=EREP_100&sort=-total&tz=420&page=2:
+    one page of the report list (the filter: see report_filter), each report with its OCR and review status.
+    page_size: the reports on a page (default 20, at most 100). A page past the end of the list gives its last page.
 
     Answers {"reimbursements": [...], "page": 2, "page_size": 20, "page_count": 3, "matching": 57}: matching is how
     many reports the whole list holds."""
     try:
-        found = report_filter.parse(request.args, ITEM_VALIDATORS)
+        found = report_filter.parse(request.args)
         page_size = _page_size(request.args.get("page_size"))
     except report_filter.FilterError as error:
         return _body_error(error.error, str(error))
 
     page = found.page
-    reports, earlier, matching = reimbursement_repository.find_report_page(found.query, page_size, (page - 1) * page_size)
+    reports, matching = reimbursement_repository.find_report_page(found.query, page_size, (page - 1) * page_size)
     page_count = max(1, -(-matching // page_size))
     if page > page_count:  # the list got shorter since the page was linked
         page = page_count
-        reports, earlier, matching = reimbursement_repository.find_report_page(
-            found.query, page_size, (page - 1) * page_size)
+        reports, matching = reimbursement_repository.find_report_page(found.query, page_size, (page - 1) * page_size)
         page_count = max(1, -(-matching // page_size))
 
-    before = defaultdict(list)  # the revisions before the current one, oldest first, by report
-    for revision in earlier:
-        revision["ocr_status"] = ocr_status(revision.pop("photo_count"), revision.pop("ocr_states"))
-        revision["decision"] = {"decision": revision["decision"]} if revision["decision"] in ("approved", "rejected") else None
-        before[revision.pop("reimbursement_code")].append(revision)
     for report in reports:
-        decision = {"id": report.pop("decision_id"), "decision": report.pop("decision"),
-                    "reason": report.pop("decision_reason"), "user_email": report.pop("decision_user_email"),
-                    "user_name": report.pop("decision_user_name"), "decided_at": report.pop("decision_decided_at")}
-        report["decision"] = decision if decision["id"] is not None else None
-        report["previously_approved"] = walk_revisions(before[report["reimbursement_code"]]) == "approved"
+        decision = _decision_of(report)
+        for key in ("decision_id", "decision_reason", "decision_user_email", "decision_user_name",
+                    "decision_decided_at"):
+            del report[key]
+        report["decision"] = decision
     return jsonify(reimbursements=to_json(reports), page=page, page_size=page_size, page_count=page_count,
                    matching=matching)
 
 
 def summarize_reimbursements():
-    """GET /api/reimbursements/summary?type=bbm&q=RB-0: how many reports there are of each month (received in, WIB),
+    """GET /api/reimbursements/summary?q=EREP_100: how many reports there are of each month (received in, WIB),
     review status and part of it, and their amount; q narrows it down as in the list.
     For the list's month picker and status counts, and the home page.
 
     Answers {"groups": [{"period": "2026-10", "status": "approved", "part": "proceed", "reports": 12,
-    "amount": 4250000}, ...], "oldest_needs_review": "RB-012"}: the report that needs review the longest, or null."""
+    "amount": 4250000}, ...], "oldest_needs_review": "EREP_10012"}: the report that needs review the longest, or null."""
     try:
-        found = report_filter.parse(request.args, ITEM_VALIDATORS)
+        found = report_filter.parse(request.args)
     except report_filter.FilterError as error:
         return _body_error(error.error, str(error))
-    groups, oldest = reimbursement_repository.find_report_summary(
-        found.query.reimbursement_type, found.query.search, report_filter.MONTH_UTC_OFFSET)
+    groups, oldest = reimbursement_repository.find_report_summary(found.query.search, report_filter.MONTH_UTC_OFFSET)
     return jsonify(groups=to_json(groups), oldest_needs_review=oldest)
 
 
@@ -158,9 +153,9 @@ def list_codes():
     """GET /api/reimbursements/codes?<the list's filter and sort>: the codes of the reports of the list, in its order
     (the first MAX_LIST_CODES), for previous / next on the report pages.
 
-    Answers {"codes": ["RB-012", ...], "more": false}: more is true when the list holds more reports."""
+    Answers {"codes": ["EREP_10012", ...], "more": false}: more is true when the list holds more reports."""
     try:
-        found = report_filter.parse(request.args, ITEM_VALIDATORS)
+        found = report_filter.parse(request.args)
     except report_filter.FilterError as error:
         return _body_error(error.error, str(error))
     codes = reimbursement_repository.find_report_codes(found.query, MAX_LIST_CODES + 1)
@@ -176,9 +171,9 @@ def _page_size(value):
 
 
 def get_reimbursement(code):
-    """GET /api/reimbursements/<code>: one report with every revision (newest first: the first is the current one),
-    their items and photos, the OCR result of each photo (lines read, differences), the reviewers' decisions on each
-    revision and their comments on the report."""
+    """GET /api/reimbursements/<code>: one report with its items and photos (its files: each item's photo_ids, each
+    photo's item_ids), the OCR result of each photo (lines read, differences), the reviewers' decisions and their
+    comments."""
     report = report_detail(code)
     if report is None:
         return jsonify(error="not_found", message=f"No reimbursement with code {code}."), 404
@@ -187,41 +182,19 @@ def get_reimbursement(code):
 
 def report_detail(code):
     """The report as GET /api/reimbursements/<code> sends it (not yet made JSON-ready), or None if it is unknown.
-    Each revision gets its ocr_status, the decision in force (or None), previously_rejected, previously_approved and
-    review_status (see walk_revisions), and each photo its own ocr_status, ocr_error_reason and ocr_attempts (see
-    add_photo_status)."""
+    The report gets its ocr_status, the decision in force (or None) and its review_status, and each photo its own
+    ocr_status, ocr_error_reason and ocr_attempts (see add_photo_status), and each item its fuel_price (the fuel price
+    page's price of its fuel, today and on its date: fuel_price_service.add_item_prices)."""
     report = reimbursement_repository.find_report(code)
     if report is None:
         return None
-
-    for revision in report["revisions"]:
-        revision["ocr_status"] = add_photo_status(revision["photos"])
-        revision["decision"] = current_decision(revision["decisions"])
-    walk_revisions(reversed(report["revisions"]))
+    report["ocr_status"] = add_photo_status(report["photos"])
+    fuel_price_service.add_item_prices(report)
+    report["decision"] = current_decision(report["decisions"])
+    add_same_receipt(report)
+    report["review_status"] = review_status(report["ocr_status"], report["decision"], report["double_claim"])
     report["comments"] = comment_repository.find_by_report(code)
     return report
-
-
-def walk_revisions(revisions):
-    """Give each revision of a report, oldest first (each with its ocr_status and its decision in force, or None),
-    what came before it and its review_status:
-      previously_rejected  the latest earlier revision with a decision was rejected: shown as a note ("Sent again
-                           after a rejection"); the status is worked out as for any revision
-      previously_approved  the latest earlier revision that ended approved or rejected (by a reviewer, or approved by
-                           the OCR) ended approved: the report was revised after an approval, which the website marks
-    Returns how the last of them that ended approved or rejected ended ("approved" / "rejected"; None when none did),
-    which is previously_approved for a revision after them."""
-    decided = None  # the decision in force on the latest revision so far that has one
-    ended = None  # how the latest revision so far that ended approved or rejected ended
-    for revision in revisions:
-        revision["previously_rejected"] = decided == "rejected"
-        revision["previously_approved"] = ended == "approved"
-        revision["review_status"] = review_status(revision["ocr_status"], revision["decision"])
-        if revision["decision"]:
-            decided = revision["decision"]["decision"]
-        if revision["review_status"] in ("approved", "rejected"):
-            ended = revision["review_status"]
-    return ended
 
 
 # Why the OCR could not read a file, as a code the website names in the reviewer's language. The error kept with the
@@ -246,8 +219,8 @@ def failure_reason(error):
 
 
 def ocr_status(photo_count, states):
-    """failed / needs_review / processing / proceed / matched for a revision, from the state of the newest OCR row
-    of each of its photos: the decision of a done reading, else queued / running / failed. A photo without a row,
+    """failed / needs_review / processing / proceed / matched for a report, from the state of the newest OCR row
+    of each of its files: the decision of a done reading, else queued / running / failed. A file without a row,
     or one queued or being read, is processing."""
     found = {"processing" if state in ("queued", "running") else state for state in states}
     if len(states) < photo_count or not states:
@@ -259,7 +232,7 @@ def add_photo_status(photos):
     """Give each photo (with ocr_task and ocr from the repository) its ocr_status (as ocr_status() above, for
     one photo), ocr_error_reason (why the OCR could not read it, when it failed: see failure_reason) and
     ocr_attempts; ocr_task is taken out.
-    Returns the ocr_status of the revision they belong to."""
+    Returns the ocr_status of the report they belong to."""
     for photo in photos:
         task = photo.pop("ocr_task")
         state = photo["ocr"]["decision"] if photo["ocr"] else task["status"] if task else None
@@ -269,21 +242,83 @@ def add_photo_status(photos):
     return ocr_status(len(photos), [photo["ocr_status"] for photo in photos])
 
 
+# What another report claiming the same receipt is to this one, in the order the page lists them
+SAME_RECEIPT_KINDS = ("double_claim", "resubmission", "claimed_again", "resubmitted")
+
+
+def add_same_receipt(report):
+    """Give the report (with its decision in force) same_receipt: the other reports claiming the same receipt (a file
+    with the same content, or the same employee's item with the same day, amount and volume: stored when a report or
+    a reading comes in, schema.sql store_receipt_matches), and double_claim: one of them is a double_claim, so the report needs
+    a reviewer. Each other report: {reimbursement_code, employee_no, employee_name, received_at, review_status,
+    decision (in force, or None), kind, files (this report's files with the same content), numbers ([{day, amount,
+    volume}] they both have)}, kind being what it is to this report:
+
+        double_claim   received before, and not a resubmission: this report may claim the receipt a second time
+        resubmission   received before: the same employee's report a reviewer rejected, this one sends it again
+        claimed_again  received after, claiming it again (flagged there, unless it resubmits this rejected report)
+        resubmitted    received after: the same employee resubmitting this rejected report
+
+    Worked out on every read: a decision on the other report (or on this one) changes what it is."""
+    matches, others = reimbursement_repository.find_same_receipt(report["reimbursement_code"])
+    rejected = report["decision"] is not None and report["decision"]["decision"] == "rejected"
+    found = {}
+    for match in matches:
+        code = match["other_code"]
+        other = others[code]
+        entry = found.get(code)
+        if entry is None:
+            same_employee = other["employee_no"] == report["employee_no"]
+            decision = _decision_of(other)
+            if match["earlier"]:
+                resubmission = same_employee and decision is not None and decision["decision"] == "rejected"
+                kind = "resubmission" if resubmission else "double_claim"
+            else:
+                kind = "resubmitted" if same_employee and rejected else "claimed_again"
+            entry = found[code] = {
+                "reimbursement_code": code, "employee_no": other["employee_no"],
+                "employee_name": other["employee_name"], "received_at": other["received_at"],
+                "review_status": other["review_status"], "decision": decision, "kind": kind,
+                "files": [], "numbers": [],
+            }
+        if match["how"] == "file":
+            if match["file_name"] not in entry["files"]:
+                entry["files"].append(match["file_name"])
+        elif match["how"] == "data":
+            numbers = {"day": match["day"], "amount": match["amount"], "volume": match["volume"]}
+            if numbers not in entry["numbers"]:
+                entry["numbers"].append(numbers)
+    report["same_receipt"] = sorted(found.values(), key=lambda entry: (SAME_RECEIPT_KINDS.index(entry["kind"]),
+                                                                       entry["received_at"]))
+    report["double_claim"] = any(entry["kind"] == "double_claim" for entry in report["same_receipt"])
+
+
+def _decision_of(row):
+    """The decision in force of a report row of the list (its decision_* columns), or None."""
+    if row["decision_id"] is None:
+        return None
+    return {"id": row["decision_id"], "decision": row["decision"], "reason": row["decision_reason"],
+            "user_email": row["decision_user_email"], "user_name": row["decision_user_name"],
+            "decided_at": row["decision_decided_at"]}
+
+
 def current_decision(decisions):
-    """The reviewer's decision in force on a revision, from its decisions newest first: the newest one, unless it was
+    """The reviewer's decision in force on a report, from its decisions newest first: the newest one, unless it was
     taken back ("reopened"). None when no decision is in force."""
     return decisions[0] if decisions and decisions[0]["decision"] != "reopened" else None
 
 
-def review_status(ocr_status_, decision):
-    """needs_review / processing / approved / rejected: what is left to do with a revision.
+def review_status(ocr_status_, decision, double_claim=False):
+    """needs_review / processing / approved / rejected: what is left to do with a report.
 
-    A reviewer's decision wins. Without one, a matched or proceed revision is approved by its OCR result, whatever
-    happened to the revisions before it (every revision is compared on its own, also one sent again after a rejection
-    or an approval). A revision the OCR flagged, or could not read (failed), needs a reviewer; one the OCR is still
-    reading is processing."""
+    A reviewer's decision wins. Without one, a report claiming a receipt an earlier report claimed (double_claim, see
+    add_same_receipt) needs a reviewer, whatever the OCR found. Else a matched or proceed report is approved by its
+    OCR result. A report the OCR flagged, or could not read (failed), needs a reviewer; one the OCR is still reading
+    is processing."""
     if decision:
         return decision["decision"]
+    if double_claim:
+        return "needs_review"
     if ocr_status_ in ("matched", "proceed"):
         return "approved"
     return "needs_review" if ocr_status_ == "failed" else ocr_status_
@@ -293,28 +328,30 @@ def review_status(ocr_status_, decision):
 # Checking one report
 # ---------------------------------------------------------------------------
 
+# The price per liter the database works out (bbm_receipt.price_per_liter, numeric(12,2)) must fit its column
+MAX_PRICE_PER_LITER = Decimal(10) ** 10
+
+
 def validate_bbm_item(raw, path, errors):
-    return {
+    item = {
         "item_id": _text(raw, "item_id", path, errors, max_length=50),
         "product_name": _text(raw, "product_name", path, errors, max_length=255),
         "date_of_expense": _date(raw, "date_of_expense", path, errors),
-        "price_per_liter": _number(raw, "price_per_liter", path, errors, digits=12, decimals=2, required=False),
         "volume_liter": _number(raw, "volume_liter", path, errors, digits=10, decimals=3, above_zero=True),
         "kilometer": _integer(raw, "kilometer", path, errors, required=False),
         "total_price": _number(raw, "total_price", path, errors, digits=14, decimals=2),
     }
+    volume, total = item["volume_liter"], item["total_price"]
+    if volume is not None and total is not None and \
+            (total / volume).quantize(Decimal("0.01"), ROUND_HALF_UP) >= MAX_PRICE_PER_LITER:
+        errors.append(_error(path + "total_price", "divided by volume_liter (the price per liter) is too large"))
+    return item
 
 
-# reimbursement_type -> how to check one of its items. A new type adds a line here (and a table + writer
-# in reimbursement_repository); the endpoint and the request shape stay the same.
+# item type -> how to check one of its items. Only "bbm" so far: a new type adds a line here (and a table, its
+# writer and readers in the repositories).
 ITEM_VALIDATORS = {
     "bbm": validate_bbm_item,
-}
-
-# reimbursement_type -> the most attachments (files) one report may have; a type not listed may have several.
-# A BBM report has exactly one file, which may show several receipts (e.g. a month of fills).
-MAX_ATTACHMENTS = {
-    "bbm": 1,
 }
 
 
@@ -326,12 +363,8 @@ def validate_report(raw):
     errors = []
     report = {
         "reimbursement_code": _text(raw, "reimbursement_code", "", errors, max_length=50),
-        "reimbursement_type": _text(raw, "reimbursement_type", "", errors, max_length=20),
         "grand_total": _number(raw, "grand_total", "", errors, digits=14, decimals=2),
     }
-    item_validator = ITEM_VALIDATORS.get(report["reimbursement_type"])
-    if report["reimbursement_type"] is not None and item_validator is None:
-        errors.append(_error("reimbursement_type", f"must be one of: {', '.join(ITEM_VALIDATORS)}"))
 
     employee = raw.get("employee")
     if isinstance(employee, dict):
@@ -342,73 +375,92 @@ def validate_report(raw):
     else:
         errors.append(_error("employee", "must be an object with employee_no and name"))
 
-    report["attachments"] = [
-        {
-            "name": _text(attachment, "name", path, errors, max_length=255),
-            "url": _url(attachment, "url", path, errors),
-        }
-        for attachment, path in _objects(raw, "attachments", errors)
-    ]
-    limit = MAX_ATTACHMENTS.get(report["reimbursement_type"])
-    sent = raw.get("attachments")
-    if limit is not None and isinstance(sent, list) and len(sent) > limit:
-        files = "one file" if limit == 1 else f"at most {limit} files"
-        errors.append(_error("attachments", f"a {report['reimbursement_type']} report has {files} (one file may show "
-                                            f"several receipts); {len(sent)} were sent"))
+    report["items"] = [_validate_item(item, path, errors) for item, path in _objects(raw, "items", errors)]
+    seen = set()
+    for i, item in enumerate(report["items"]):
+        if item.get("item_id") is not None and item["item_id"] in seen:
+            errors.append(_error(f"items[{i}].item_id", "is used by another item in this report"))
+        seen.add(item.get("item_id"))
 
-    report["items"] = []
-    if item_validator is not None:
-        report["items"] = [item_validator(item, path, errors) for item, path in _objects(raw, "items", errors)]
-        seen = set()
-        for i, item in enumerate(report["items"]):
-            if item["item_id"] in seen:
-                errors.append(_error(f"items[{i}].item_id", "is used by another item in this report"))
-            seen.add(item["item_id"])
-
-        # What was paid can't be more than the price of what was bought: a discount only lowers it.
-        prices = [item.get("total_price") for item in report["items"]]
-        if report["grand_total"] is not None and prices and None not in prices and report["grand_total"] > sum(prices):
-            errors.append(_error("grand_total", f"is more than the total_price of the items added up "
-                                                f"({format(sum(prices).normalize(), 'f')}); a discount can only lower it"))
+    # What was paid can't be more than the price of what was bought: a discount only lowers it.
+    prices = [item.get("total_price") for item in report["items"]]
+    if report["grand_total"] is not None and prices and None not in prices and report["grand_total"] > sum(prices):
+        errors.append(_error("grand_total", f"is more than the total_price of the items added up "
+                                            f"({format(sum(prices).normalize(), 'f')}); a discount can only lower it"))
 
     return report, errors
+
+
+def _validate_item(raw, path, errors):
+    """One item: its type, its type's fields and its files (attachments: at least one; the same file may be sent
+    with several items: it is read once)."""
+    item_type = _text(raw, "type", path, errors, max_length=20)
+    validator = ITEM_VALIDATORS.get(item_type)
+    if item_type is not None and validator is None:
+        errors.append(_error(path + "type", f"must be one of: {', '.join(ITEM_VALIDATORS)}"))
+    item = validator(raw, path, errors) if validator else {}
+    item["type"] = item_type
+
+    item["attachments"] = [
+        {
+            "name": _text(attachment, "name", attachment_path, errors, max_length=255),
+            "url": _url(attachment, "url", attachment_path, errors),
+        }
+        for attachment, attachment_path in _objects(raw, "attachments", errors, path)
+    ]
+    return item
+
+
+def _downloads(reports):
+    """The files to download for these (index, report): {(url, name): [(index, field, attachment), ...]}. An
+    attachment sent several times in a request (the same link and name) is downloaded once."""
+    downloads = defaultdict(list)
+    for index, report in reports:
+        for i, item in enumerate(report["items"]):
+            for n, attachment in enumerate(item["attachments"]):
+                downloads[(attachment["url"], attachment["name"])].append(
+                    (index, f"items[{i}].attachments[{n}].url", attachment))
+    return downloads
 
 
 def fetch_files(reports):
     """Download the file of every attachment of these (index, report) and store it (file_storage), several at
     once. Each attachment that worked gets its sha256, storage_path and content_type. Returns {index: errors} for
     the reports with a file that could not be downloaded; raises file_storage.StorageError when the storage fails."""
-    jobs = [(index, n, attachment) for index, report in reports for n, attachment in enumerate(report["attachments"])]
+    downloads = _downloads(reports)
     failed = {}
     with ThreadPoolExecutor(max_workers=DOWNLOADS_AT_ONCE) as pool:
-        for (index, n, _), error in zip(jobs, pool.map(lambda job: _fetch_file(job[2]), jobs)):
-            if error:
-                failed.setdefault(index, []).append(_error(f"attachments[{n}].url", error))
+        for uses, (stored, error) in zip(downloads.values(), pool.map(lambda key: _fetch_file(*key), downloads)):
+            for index, field, attachment in uses:
+                if error:
+                    failed.setdefault(index, []).append(_error(field, error))
+                else:
+                    attachment.update(stored)
     return failed
 
 
-def _fetch_file(attachment):
-    """Download one attachment's file and store it; returns why it could not be downloaded, or None."""
+def _fetch_file(url, name):
+    """Download one file and store it: ({sha256, storage_path, content_type}, None), or (None, why it could not be
+    downloaded)."""
     try:
-        data, content_type = download(attachment["url"], attachment["name"])
+        data, content_type = download(url, name)
     except DownloadError as error:
         # An unreachable file may be an expired link: a new one may work
-        return f"{error} Send the report again with a new link." if error.error == "file_unreachable" else str(error)
-    if content_type == "application/pdf" and len(data) > MAX_PDF_BYTES:
-        # Stored, it would fail the OCR for good: Claude reads a PDF of at most MAX_PDF_BYTES
-        return (f"{attachment['name']} is a PDF of {len(data) / (1024 * 1024):.1f} MB; the OCR reads PDFs of at most "
-                f"{MAX_PDF_BYTES // (1024 * 1024)} MB.")
+        return None, f"{error} Send the report again with a new link." if error.error == "file_unreachable" else str(error)
     digest = hashlib.sha256(data).hexdigest()
-    attachment["storage_path"] = file_storage.save(data, digest, EXTENSIONS[content_type], content_type)
-    attachment["sha256"] = digest
-    attachment["content_type"] = content_type
-    return None
+    storage_path = file_storage.save(data, digest, EXTENSIONS[content_type], content_type)
+    return {"sha256": digest, "storage_path": storage_path, "content_type": content_type}, None
+
+
+# The item fields a report's payload_hash covers (with its files)
+HASHED_ITEM_FIELDS = ("item_id", "type", "product_name", "date_of_expense", "volume_liter", "kilometer", "total_price")
 
 
 def payload_hash(report):
-    """SHA-256 of what a revision contains, written the same way every time (numbers without trailing
-    zeros, items sorted by item_id, files by their content), so an identical resend gives the same hash.
-    A file counts by its name and SHA-256, not its link: a resend comes with a new link to the same file."""
+    """SHA-256 of what a report contains, written the same way every time (numbers without trailing zeros, items
+    sorted by item_id, each item's files by their content), so an identical resend gives the same hash. A file counts
+    by its name and SHA-256, not its link: a resend comes with a new link to the same file. The seeds
+    (backend/database/seeds) store hashes made this way: change them together."""
 
     def plain(value):
         if isinstance(value, Decimal):
@@ -419,12 +471,17 @@ def payload_hash(report):
 
     content = {
         "grand_total": plain(report["grand_total"]),
-        "attachments": sorted(
-            ({"name": a["name"], "sha256": a["sha256"]} for a in report["attachments"]),
-            key=lambda a: (a["sha256"], a["name"]),
-        ),
         "items": sorted(
-            ({key: plain(value) for key, value in item.items()} for item in report["items"]),
+            (
+                {
+                    **{key: plain(item[key]) for key in HASHED_ITEM_FIELDS},
+                    "attachments": sorted(
+                        ({"name": a["name"], "sha256": a["sha256"]} for a in item["attachments"]),
+                        key=lambda a: (a["sha256"], a["name"]),
+                    ),
+                }
+                for item in report["items"]
+            ),
             key=lambda item: item["item_id"],
         ),
     }
@@ -528,14 +585,14 @@ def _url(obj, key, path, errors):
     return value
 
 
-def _objects(obj, key, errors):
+def _objects(obj, key, errors, path=""):
     """Yield (object, path) for a required, non-empty list of objects."""
     value = obj.get(key)
     if not isinstance(value, list) or not value:
-        errors.append(_error(key, "must be a list with at least one entry"))
+        errors.append(_error(path + key, "must be a list with at least one entry"))
         return
     for i, entry in enumerate(value):
         if isinstance(entry, dict):
-            yield entry, f"{key}[{i}]."
+            yield entry, f"{path}{key}[{i}]."
         else:
-            errors.append(_error(f"{key}[{i}]", "must be a JSON object"))
+            errors.append(_error(f"{path}{key}[{i}]", "must be a JSON object"))

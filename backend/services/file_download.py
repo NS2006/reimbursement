@@ -6,8 +6,7 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 # Downloading the file of an attachment (a receipt photo or PDF) from the other system's file host: for the website
 # (attachment_service.py) and for the OCR worker (backend/jobs/bbm_ocr/worker.py).
 
-MAX_FILE_BYTES = 25 * 1024 * 1024
-TIMEOUT_SECONDS = 20
+TIMEOUT_SECONDS = 20  # without a byte from the host; a file may be any size for now (reimbursement_service)
 
 # What can be shown and read, recognised by the first bytes of the file (not by the name or the host's
 # Content-Type, which can be wrong). SVG is left out on purpose: it can carry scripts.
@@ -66,22 +65,20 @@ _opener = build_opener(_CheckedRedirects)
 
 
 def download(url, name):
-    """(data, content_type) of the file at url, at most MAX_FILE_BYTES; name is the file's name, for the messages.
-    Raises DownloadError when the host is not allowed, fails or cannot be reached, the file is too large, or it is
-    neither an image nor a PDF."""
+    """(data, content_type) of the file at url; name is the file's name, for the messages.
+    Raises DownloadError when the host is not allowed, fails or cannot be reached, or the file is neither an image
+    nor a PDF."""
     if not _host_allowed(url):
         raise DownloadError(502, "file_host_not_allowed",
                             f"The file host of {name} is not one the backend may download from (ATTACHMENT_HOSTS).")
     try:
         with _opener.open(Request(url, headers={"User-Agent": "reimbursement-backend"}),
                           timeout=TIMEOUT_SECONDS) as response:
-            data = response.read(MAX_FILE_BYTES + 1)
+            data = response.read()
     except HTTPError as error:
         raise DownloadError(502, "file_unreachable", f"The file host answered HTTP {error.code} for {name}.") from None
     except (URLError, TimeoutError, OSError):
         raise DownloadError(502, "file_unreachable", f"The file host of {name} can't be reached.") from None
-    if len(data) > MAX_FILE_BYTES:
-        raise DownloadError(502, "file_too_large", f"{name} is larger than {MAX_FILE_BYTES // (1024 * 1024)} MB.")
 
     content_type = content_type_of(data)
     if content_type is None:

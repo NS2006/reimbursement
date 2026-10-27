@@ -131,11 +131,12 @@ def numbers_match(pred, gt, field, mode):
     return diff <= max(abs_tol, rel_tol * abs(g))
 
 
-def field_match(field, pred, gt, mode):
+def field_match(field, pred, gt, mode, names=names_match):
+    """names: how a predicted product name is matched with the GT one, names(pred, gt) -> bool."""
     if field == "date":
         return normalize_date(pred) == normalize_date(gt)
     if field == "name":
-        return names_match(pred, gt)
+        return names(pred, gt)
     return numbers_match(pred, gt, field, mode)
 
 
@@ -196,22 +197,22 @@ def _mismatch(level, field, gt_value, pred_value, product_index=None, product_na
 # --------------------------------------------------------------------------
 # Product / receipt comparison
 # --------------------------------------------------------------------------
-def compare_product(pred, gt, mode):
+def compare_product(pred, gt, mode, names=names_match):
     """-> {field: bool}"""
     pred = pred or {}
-    return {f: field_match(f, pred.get(f), gt.get(f), mode) for f in PRODUCT_FIELDS}
+    return {f: field_match(f, pred.get(f), gt.get(f), mode, names) for f in PRODUCT_FIELDS}
 
 
-def product_similarity(pred, gt, mode, i, j):
-    res = compare_product(pred, gt, mode)
+def product_similarity(pred, gt, mode, i, j, names=names_match):
+    res = compare_product(pred, gt, mode, names)
     score = sum(res.values())
     score += 0.1 * name_similarity(pred.get("name"), gt.get("name"))  # tie-break
     score += 1e-3 if i == j else 0.0
     return score
 
 
-def compare_receipt(pred, gt, mode):
-    """Compare one predicted receipt (or None) with one GT receipt.
+def compare_receipt(pred, gt, mode, names=names_match):
+    """Compare one predicted receipt (or None) with one GT receipt. names: see field_match.
 
     Returns (counts, extra_products, correct_total, errors)
       counts: {field: [correct, total]} based on GT fields
@@ -232,7 +233,7 @@ def compare_receipt(pred, gt, mode):
     pred_products = pred.get("products") or []
 
     sim = [
-        [product_similarity(p, g, mode, i, j) for j, g in enumerate(gt_products)]
+        [product_similarity(p, g, mode, i, j, names) for j, g in enumerate(gt_products)]
         for i, p in enumerate(pred_products)
     ]
     pairing = {j: i for i, j in assign(sim)}
@@ -248,7 +249,7 @@ def compare_receipt(pred, gt, mode):
                     "gt": _clean_product(g), "pred": None,
                 })
         else:
-            res = compare_product(p, g, mode)
+            res = compare_product(p, g, mode, names)
         for f in PRODUCT_FIELDS:
             counts[f][0] += int(res[f])
             counts[f][1] += 1

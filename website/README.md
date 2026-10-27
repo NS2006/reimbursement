@@ -23,7 +23,8 @@ In development Vite forwards every `/api` call to it ([vite.config.ts](vite.conf
 |---|---|
 | `/` | **Beranda (Home).** How many reports need review and in which months. **Mulai review** opens the oldest, and each decision moves on to the next. Also BBM at a glance: reports per status and per month. |
 | `/bbm` | **The BBM list.** A month picker, a card per review status (approved ones also split into matched, proceed and approved by a reviewer, to spot-check the OCR), search, sort by any column, 20 per page. The month, filter, search, sort and page live in the URL. **Ekspor ke Excel** downloads the whole list. |
-| `/bbm/<code>` | **One report.** What the OCR found and what to check, the receipt file (photo or PDF) next to the submitted items and what the OCR read, with each difference marked. Also what changed since the previous revision, the history and comments. The bar at the bottom approves or rejects (rejecting needs a reason) or takes a decision back; previous and next follow the list the report was opened from. |
+| `/bbm/<code>` | **One report.** What the OCR found and what to check (a possible double claim first: **Struk yang sama di laporan lain** lists every other report with the same receipt, what it is to this one, its status and decision, the employee, when it arrived and what both have; each opens in a new tab, and the reject reasons offer "already claimed in EREP_x"), the receipt files (photo or PDF) next to the submitted items (with each item's file, and the price per liter worked out from the amount and volume, compared with the receipt's) and what the OCR read in each file, with each difference marked. A **Harga BBM** card puts each item's price per liter next to the Harga BBM page's price of its fuel on the receipt date and today (the fuel from the fuel type, or the receipt's name for Performa > 92 and Diesel/Dex), marked when they are over 10% apart. Also the history and comments. The bar at the bottom approves or rejects (rejecting needs a reason) or takes a decision back; previous and next follow the list the report was opened from. |
+| `/fuel-prices` | **Harga BBM (Fuel prices).** The DKI Jakarta price per liter of every fuel. On top, the price changes of the last 30 days and the prices announced for a later day (up in red, down in green). Below, one table: merchant tabs, a search and the fuel kind (in the URL), headers sorted by product, merchant or price; each row has today's price (since when, and an announced one) and the source (official page, news or manual, with its link); the price before it and the change are in the row's history. A row opens its **Riwayat harga**: a step chart of the price over time (dashed for an announced price) and every price with its source and the sentence quoted from it. **Perbarui dari web** queues a refresh (`POST /api/fuel-prices/refresh`, once a day; the OCR worker runs it: Claude reads Pertamina's and Shell's own price lists, and recent news articles for BP and Vivo); the line under it says how the last one went, and **Detail** says in words what it came to (all prices unchanged, the new prices with the price before each, or why it failed). |
 
 **Sign-in:** for now the login page is a development user picker (users from the `app_user` table, no password),
 remembered in the browser until **Ganti pengguna**. Real sign-in will come from the Blibli gateway.
@@ -43,14 +44,14 @@ src/
 │   ├── App.tsx           # app shell: the login page until a user is picked, then the page for the URL
 │   ├── router.ts         # small router (no library): useLocation, navigate, linkTo
 │   └── i18n.ts           # the language: t(), setLanguage(), dateLocale()
-├── pages/                # one file per page, JSX only (HomePage, BbmPage, BbmReportPage, LoginPage, NotFoundPage)
+├── pages/                # one file per page, JSX only (HomePage, BbmPage, BbmReportPage, FuelPricePage, LoginPage, NotFoundPage)
 ├── controllers/          # one controller per page: its data, state, actions and backend calls
 │   └── api.ts            #   the shared helpers for calling the backend (request, useApi, errorMessage, ...)
 ├── layouts/AppLayout.tsx # the frame of every signed-in page: navbar, language switch, current user
 ├── components/
 │   ├── blue/             # BLUE3 components (BlueButton, BlueTable, BlueModal, BlueToast, ...)
-│   └── *.tsx             # app components built on them (CommentThread, PhotoViewer, FileViewer, StatusBar, ...)
-├── locales/en/, id/      # every text, one file per area (common, home, login, bbmList, report, components)
+│   └── *.tsx             # app components built on them (CommentThread, PhotoViewer, FileViewer, StatusBar, PriceStepChart, ...)
+├── locales/en/, id/      # every text, one file per area (common, home, login, bbmList, report, fuelPrice, components)
 ├── styles/               # all CSS, in the same folders as the code (styles/pages/BbmPage.css for pages/BbmPage.tsx)
 ├── types/                # shared types
 └── utils/                # display helpers (format.ts: rupiah, numbers, dates, months; status labels; field names)

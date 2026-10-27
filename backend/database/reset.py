@@ -8,8 +8,9 @@ Options:
     reseed   Empty every table, then run every seeder again. The tables stay as they are.
     rebuild  Drop everything, create the tables from schema.sql, then run every seeder.
              Use this after changing schema.sql.
-    empty    Empty every table but app_user, without seeding: the users can still sign in, and the reports come
-             only from POST /api/reimbursements.
+    empty    Empty every table but app_user, without seeding, like a first deploy: the users can still sign in, the
+             reports come only from POST /api/reimbursements, and the fuel price worker adds the fuels again (when it
+             starts, or before its next refresh) and their prices from "Update from the web".
 
 Needs psql on PATH and the DB_* settings in .env (repository root). Everything in the database is deleted,
 so it refuses to run against anything other than localhost.
@@ -29,11 +30,15 @@ SCHEMA = DATABASE_DIR / "schema.sql"
 # Seeders run in this order; a seeder can only use rows inserted by the ones before it. Add new seeders here.
 SEEDS = [
     DATABASE_DIR / "seeds" / "app_user.sql",
+    DATABASE_DIR / "seeds" / "fuel_product.sql",
+    DATABASE_DIR / "seeds" / "fuel_price.sql",
     DATABASE_DIR / "seeds" / "dummy_reimbursement.sql",
     DATABASE_DIR / "seeds" / "dummy_bbm_ocr.sql",
     DATABASE_DIR / "seeds" / "dummy_ocr_failure.sql",
     DATABASE_DIR / "seeds" / "dummy_comment.sql",
     DATABASE_DIR / "seeds" / "dummy_review_decision.sql",
+    DATABASE_DIR / "seeds" / "dummy_month.sql",
+    DATABASE_DIR / "seeds" / "same_receipt.sql",   # last: the reports claiming the same receipt, of every seed
 ]
 
 MODES = {
@@ -55,7 +60,8 @@ BEGIN
 END $$;
 """
 EMPTY_ALL_TABLES = EMPTY_TABLES.format(keep="''")
-# No table references app_user's rows but comment and review_decision, which are emptied too.
+# comment and review_decision reference app_user's rows and are emptied too. fuel_product is emptied as on a first
+# deploy: the fuel price worker inserts the fuels again (fuel_price_repository.add_products_if_none).
 EMPTY_ALL_BUT_USERS = EMPTY_TABLES.format(keep="'app_user'")
 
 DROP_EVERYTHING = "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"

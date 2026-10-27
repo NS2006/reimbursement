@@ -1,0 +1,123 @@
+/* A price over time (components/PriceStepChart.tsx): one colour, thin marks, a recessive grid */
+.price-chart {
+  position: relative;
+  width: 100%;
+}
+
+.price-chart__svg {
+  display: block;
+  overflow: visible;
+  font-family: inherit;
+}
+
+.price-chart__grid {
+  stroke: var(--blue-color-border-default);
+  stroke-width: 1;
+  shape-rendering: crispEdges;
+}
+
+.price-chart__tick {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  fill: var(--blue-color-text-secondary);
+}
+
+.price-chart__today line {
+  stroke: var(--blue-color-neutral-400);
+  stroke-width: 1;
+  shape-rendering: crispEdges;
+}
+
+.price-chart__today text {
+  font-size: 11px;
+  font-weight: var(--blue-font-weight-semibold);
+  fill: var(--blue-color-text-secondary);
+}
+
+.price-chart__wash {
+  fill: var(--blue-color-brand-primary);
+  opacity: 0.1;
+}
+
+.price-chart__line {
+  fill: none;
+  stroke: var(--blue-color-brand-primary);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+/* Announced, not in force yet */
+.price-chart__line--upcoming {
+  stroke-dasharray: 5 4;
+  opacity: 0.75;
+}
+
+.price-chart__crosshair {
+  stroke: var(--blue-color-text-secondary);
+  stroke-width: 1;
+  shape-rendering: crispEdges;
+  pointer-events: none;
+}
+
+.price-chart__hit {
+  fill: transparent;
+  cursor: crosshair;
+}
+
+.price-chart__target {
+  fill: transparent;
+}
+
+/* A 2px ring in the surface colour keeps a dot clear of the line */
+.price-chart__dot {
+  fill: var(--blue-color-brand-primary);
+  stroke: var(--blue-color-surface-default);
+  stroke-width: 2;
+  pointer-events: none;
+}
+
+.price-chart__dot--upcoming {
+  fill: var(--blue-color-surface-default);
+  stroke: var(--blue-color-brand-primary);
+}
+
+.price-chart__point {
+  cursor: default;
+  outline: none;
+}
+
+.price-chart__point:focus-visible .price-chart__target {
+  stroke: var(--blue-color-border-focus);
+  stroke-width: 2;
+}
+
+.price-chart__end {
+  font-size: 12px;
+  font-weight: var(--blue-font-weight-semibold);
+  fill: var(--blue-color-text-primary);
+}
+
+/* The price on the day under the pointer: the value first, the days after */
+.price-chart__tooltip {
+  position: absolute;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--blue-space-2) var(--blue-space-3);
+  border: 1px solid var(--blue-color-border-default);
+  border-radius: var(--blue-radius-sm);
+  background: var(--blue-color-surface-default);
+  box-shadow: var(--blue-shadow-md);
+  font-size: var(--blue-font-size-xs);
+  color: var(--blue-color-text-secondary);
+  white-space: nowrap;
+  transform: translate(-50%, calc(-100% - 12px));
+  pointer-events: none;
+}
+
+.price-chart__tooltip strong {
+  font-size: var(--blue-font-size-sm);
+  color: var(--blue-color-text-primary);
+}

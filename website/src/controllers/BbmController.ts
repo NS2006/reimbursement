@@ -13,7 +13,7 @@ import { ApiError, errorMessage, jsonBody, request, requestFile, useApi } from "
 // sorted by a column and shown a page at a time. The backend does the filtering, sorting and paging, so only the
 // page on screen is loaded, however many reports there are; the counts of the month picker and the status filters
 // come from its summary. The month, filter, search, sort and page are kept in the URL
-// (/bbm?period=2026-10&status=approved&by=proceed&q=RB-0&sort=-total&page=2), so they survive opening a report and
+// (/bbm?period=2026-10&status=approved&by=proceed&q=EREP_100&sort=-total&page=2), so they survive opening a report and
 // coming back, and a filtered list can be shared as a link.
 // "Export to Excel" downloads the reports of the list (every page); on "Needs review · OCR couldn't read", "Retry OCR
 // on all" puts the files of every report in the list back in the OCR queue, once the reviewer confirms it.
@@ -74,7 +74,7 @@ function toPeriod(value: string | null): Period {
 const monthParts = new Intl.DateTimeFormat("en-GB", { timeZone: MONTH_TIME_ZONE, year: "numeric", month: "2-digit" });
 
 /** The month of a moment ("2026-10"), in WIB like the backend's months and the Received column, so a report received
- * 31-10 23:30 WIB is in October for every reviewer. A report's month is when its current revision was received. */
+ * 31-10 23:30 WIB is in October for every reviewer. A report's month is when it was received. */
 export function periodOf(moment: string | number): Period {
   const parts = Object.fromEntries(monthParts.formatToParts(new Date(moment)).map((part) => [part.type, part.value]));
   return `${parts.year}-${parts.month}`;
@@ -109,7 +109,6 @@ export interface BbmList {
  * the export and "Retry OCR on all". */
 function listParams(list: BbmList): Record<string, string | null> {
   return {
-    type: "bbm",
     period: list.period === "all" ? null : list.period,
     status: list.status === "all" ? null : list.status,
     by: list.by,
@@ -119,7 +118,7 @@ function listParams(list: BbmList): Record<string, string | null> {
   };
 }
 
-/** The query string of a list for the backend, e.g. "type=bbm&status=needs_review&tz=420". */
+/** The query string of a list for the backend, e.g. "status=needs_review&tz=420". */
 export function listQuery(list: BbmList): string {
   return withParams("", listParams(list)).replace(/^\?/, "");
 }
@@ -142,7 +141,7 @@ export interface BbmTotals extends ReimbursementTotals {
 /** How many BBM reports each month, status and part has (those matching the search), and their amount (also used by
  * the home page). */
 export async function getBbmTotals(search: string, signal: AbortSignal): Promise<BbmTotals> {
-  const query = withParams("/reimbursements/summary", { type: "bbm", q: search.trim() || null });
+  const query = withParams("/reimbursements/summary", { q: search.trim() || null });
   const body = await request<ReimbursementTotals>(query, { signal });
   return { ...body, loadedAt: Date.now() };
 }
@@ -181,7 +180,7 @@ export interface BbmQueue {
   more?: boolean;
 }
 
-/** What the queue's list shows, e.g. "Needs review", "All reports · October 2026" or "Search “RB-01”". */
+/** What the queue's list shows, e.g. "Needs review", "All reports · October 2026" or "Search “EREP_100”". */
 export function queueLabel({ list: { period, status, by, search } }: BbmQueue): string {
   const what =
     status !== "all"
@@ -231,7 +230,7 @@ const MAX_EXPORT_REPORTS = 5000;
 /** The backend builds the workbook from the list (every page, sorted as shown). */
 async function exportBbmReports(list: BbmList): Promise<{ blob: Blob; name: string; count: number }> {
   const file = await requestFile(
-    "/reimbursements/export?type=bbm",
+    "/reimbursements/export",
     jsonBody("POST", { ...listParams(list), website_url: window.location.origin }),
   );
   const count = Number(file.headers.get("X-Export-Count"));
@@ -257,7 +256,7 @@ function exportHint(count: number, period: Period, paged: boolean): string {
 /** The backend queues the failed files of the list's reports again; a report retried or decided in the meantime is
  * skipped (409 when all of them are). */
 async function retryBbmOcr(list: BbmList): Promise<{ queued: string[]; files: number }> {
-  return request<{ queued: string[]; files: number }>("/reimbursements/ocr/retry?type=bbm", jsonBody("POST", listParams(list)));
+  return request<{ queued: string[]; files: number }>("/reimbursements/ocr/retry", jsonBody("POST", listParams(list)));
 }
 
 /** What "Retry OCR on all" does, for its tooltip. */
@@ -309,7 +308,7 @@ function toPage(value: string | null): number {
 /** How long the search waits after the last key before the list is loaded again. */
 const SEARCH_DELAY_MS = 300;
 
-/** Why the list is empty although the month has reports, e.g. "Nothing matches “RB-9” in Needs review, October 2026." */
+/** Why the list is empty although the month has reports, e.g. "Nothing matches “EREP_9” in Needs review, October 2026." */
 function noMatchText(period: Period, status: StatusFilter, by: StatusPart | null, search: string): string {
   const text = search.trim();
   if (text) {

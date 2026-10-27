@@ -8,10 +8,12 @@ const common = {
   nav: {
     home: "Home",
     bbm: "BBM",
+    fuelPrices: "Fuel prices",
   },
   title: {
     home: "Home",
     bbm: "BBM",
+    fuelPrices: "Fuel prices",
     report: "{{code}} · BBM",
     notFound: "Page not found",
     signIn: "Sign in",
@@ -53,7 +55,7 @@ const common = {
     rejected: {
       label: "Rejected",
       hint: "Refused by a reviewer",
-      meaning: "A reviewer rejected the report. A corrected report can be sent again as a new revision.",
+      meaning: "A reviewer rejected the report. A corrected report can be sent again under a new code.",
     },
   },
   ocrStatus: {
@@ -91,6 +93,10 @@ const common = {
     reviewer: { label: "By a reviewer", text: "By a reviewer" },
   },
   needsReviewReason: {
+    duplicate: {
+      label: "Possible double claim",
+      text: "A report received earlier claims the same receipt (the same file, or the same day, amount and volume)",
+    },
     differences: { label: "Differences", text: "The OCR read the receipt file and found differences it couldn't explain" },
     failed: { label: "OCR couldn't read", text: "The OCR couldn't read the receipt file, so nothing was compared" },
   },
@@ -151,7 +157,8 @@ const common = {
       nothing_failed: "The OCR is not stuck on this report any more: it was retried in the meantime.",
       nothing_to_reopen: "There is no decision on this report to take back.",
       reason_required: "Say why the report is rejected.",
-      revision_changed: "A new revision of this report arrived in the meantime. Check it before deciding.",
+      refresh_active: "A fuel price update is already queued or running.",
+      refresh_too_soon: "The fuel prices were updated a moment ago. Try again later.",
       too_many_reports: "This list has more than 5,000 reports. Choose a month or narrow the search.",
     },
   },

@@ -6,7 +6,7 @@ INSERT INTO app_user (email, name) VALUES
     ('admin@example.com',    'Admin'),
     ('reviewer1@example.com', 'Reviewer One'),
     ('reviewer2@example.com', 'Reviewer Two'),
-    ('niko.sutiono@gdn-commerce.com', 'Niko Sutiono'),
+    ('niko.sutiono@gdn-commerce.com', 'Niko Sutiono')
 ON CONFLICT (email) DO UPDATE
     SET name = EXCLUDED.name;
 

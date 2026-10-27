@@ -2,10 +2,12 @@ import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import type { BlueNavItem } from "../components/blue/types";
 import { BBM_PATH } from "../controllers/BbmController";
+import { FUEL_PRICES_PATH } from "../controllers/FuelPriceController";
 import { useCurrentUser } from "../controllers/LoginController";
 import AppLayout from "../layouts/AppLayout";
 import BbmPage from "../pages/BbmPage";
 import BbmReportPage from "../pages/BbmReportPage";
+import FuelPricePage from "../pages/FuelPricePage";
 import HomePage from "../pages/HomePage";
 import LoginPage from "../pages/LoginPage";
 import NotFoundPage from "../pages/NotFoundPage";
@@ -18,11 +20,13 @@ import { useLocation } from "./router";
 //   /             home
 //   /bbm          BBM reports (fuel)
 //   /bbm/<code>   one BBM report
+//   /fuel-prices  the fuel prices
 
 function navItems(): BlueNavItem[] {
   return [
     { key: "home", label: t("nav.home"), href: "/" },
     { key: "bbm", label: t("nav.bbm"), href: BBM_PATH },
+    { key: "fuel-prices", label: t("nav.fuelPrices"), href: FUEL_PRICES_PATH },
   ];
 }
 
@@ -30,6 +34,7 @@ type Route =
   | { page: "home"; nav: "home"; title: string }
   | { page: "bbm"; nav: "bbm"; title: string }
   | { page: "bbm-report"; nav: "bbm"; title: string; code: string }
+  | { page: "fuel-prices"; nav: "fuel-prices"; title: string }
   | { page: "not-found"; nav?: undefined; title: string };
 
 function decodeSegment(segment: string): string {
@@ -43,6 +48,7 @@ function decodeSegment(segment: string): string {
 function routeOf(path: string): Route {
   if (path === "/") return { page: "home", nav: "home", title: t("title.home") };
   if (path === BBM_PATH) return { page: "bbm", nav: "bbm", title: t("title.bbm") };
+  if (path === FUEL_PRICES_PATH) return { page: "fuel-prices", nav: "fuel-prices", title: t("title.fuelPrices") };
   const report = /^\/bbm\/([^/]+)$/.exec(path);
   if (report) {
     const code = decodeSegment(report[1]);
@@ -58,8 +64,10 @@ function Page({ route, user }: { route: Route; user: User }) {
     case "bbm":
       return <BbmPage />;
     case "bbm-report":
-      // key: a new report starts fresh (its revision tab, its comment draft).
+      // key: a new report starts fresh (its comment draft).
       return <BbmReportPage key={route.code} code={route.code} user={user} />;
+    case "fuel-prices":
+      return <FuelPricePage user={user} />;
     case "not-found":
       return <NotFoundPage />;
   }

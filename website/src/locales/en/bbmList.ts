@@ -31,6 +31,10 @@ const bbmList = {
     parts: "{{status}}: which part",
   },
   partHints: {
+    duplicate:
+      "A report received earlier claims the same receipt as each of these: the same file, or the same employee's " +
+      "receipt with the same day, amount and volume. Open the report to compare the two: reject it if the receipt is " +
+      "claimed twice, approve it if they are different receipts.",
     proceed:
       "The OCR approved these because it judged every difference a misread. Spot-check them: if a difference is a " +
       "real mismatch, open the report and reject it.",
@@ -67,14 +71,11 @@ const bbmList = {
     statusIn: "No report received in {{month}} has this status.",
   },
   report: {
-    revision: "Revision {{number}}",
     files: "{{count}} files",
-    revisedAfterApproval: "Revised after approval",
-    revisedAfterApprovalHint: "An earlier revision was approved before this one arrived. Check what changed.",
     by: "By {{name}}",
     byOcrProceed: "By the OCR: misreads only",
     byOcrMatched: "By the OCR: matched",
-    sentAgain: "Sent again after a rejection",
+    doubleClaim: "Receipt already claimed",
   },
   ocr: {
     label: "OCR:",

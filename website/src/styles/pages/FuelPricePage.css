@@ -1,0 +1,831 @@
+.fuel-price-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--blue-space-6);
+}
+
+/* The title on the left; the refresh button and its last run on the right */
+.fuel-price-page__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--blue-space-3) var(--blue-space-6);
+}
+
+.fuel-price-page__refresh {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--blue-space-1);
+  min-width: 0;
+}
+
+.fuel-price-page__refresh .blue-button__label,
+.fuel-price-page__history-button .blue-button__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.fuel-price-page__button-icon {
+  flex-shrink: 0;
+}
+
+.fuel-price-page__run {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px 6px;
+  font-size: var(--blue-font-size-xs);
+  color: var(--blue-color-text-secondary);
+}
+
+.fuel-price-page__run-icon {
+  flex-shrink: 0;
+}
+
+.fuel-price-page__run--done .fuel-price-page__run-icon {
+  color: var(--blue-color-feedback-success);
+}
+
+.fuel-price-page__run--failed {
+  color: var(--blue-color-feedback-error-hover);
+}
+
+.fuel-price-page__details-button.blue-button--sm {
+  padding: 2px var(--blue-space-2);
+  font-size: var(--blue-font-size-xs);
+}
+
+.fuel-price-page__cooldown {
+  margin: 0;
+  font-size: var(--blue-font-size-xs);
+  color: var(--blue-color-text-secondary);
+}
+
+/* The confirm dialog of "Update from the web" */
+.fuel-price-page__dialog-text {
+  margin: 0 0 var(--blue-space-3);
+  color: var(--blue-color-text-secondary);
+}
+
+.fuel-price-page__error {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--blue-space-3);
+}
+
+/* ------------------------------------------------------------------------- */
+/* Recent changes: a card per change; a click opens the product's history     */
+/* ------------------------------------------------------------------------- */
+
+.fuel-price-page__recent {
+  display: flex;
+  flex-direction: column;
+  gap: var(--blue-space-3);
+}
+
+.fuel-price-page__section-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px var(--blue-space-3);
+}
+
+.fuel-price-page__section-title {
+  margin: 0;
+  font-size: var(--blue-font-size-md);
+  font-weight: var(--blue-font-weight-semibold);
+}
+
+.fuel-price-page__section-subtitle {
+  margin: 0;
+  font-size: var(--blue-font-size-xs);
+  color: var(--blue-color-text-secondary);
+}
+
+.fuel-price-page__changes {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: var(--blue-space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fuel-price-page__change {
+  display: flex;
+  flex-direction: column;
+  gap: var(--blue-space-1);
+  width: 100%;
+  height: 100%;
+  padding: var(--blue-space-3) var(--blue-space-4);
+  border: 1px solid var(--blue-color-border-default);
+  border-radius: var(--blue-radius-md);
+  background: var(--blue-color-surface-default);
+  box-shadow: var(--blue-shadow-sm);
+  color: var(--blue-color-text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.fuel-price-page__change:hover {
+  border-color: var(--blue-color-brand-primary);
+  box-shadow: var(--blue-shadow-md);
+}
+
+.fuel-price-page__change:focus-visible {
+  outline: 2px solid var(--blue-color-border-focus);
+  outline-offset: 2px;
+}
+
+/* Announced, not in force yet: dashed, as in the chart */
+.fuel-price-page__change--upcoming {
+  border-style: dashed;
+  background: var(--blue-color-surface-subtle);
+}
+
+.fuel-price-page__change--placeholder {
+  cursor: default;
+}
+
+.fuel-price-page__change-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--blue-space-2);
+}
+
+.fuel-price-page__change-name {
+  overflow: hidden;
+  font-weight: var(--blue-font-weight-semibold);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fuel-price-page__change-meta {
+  font-size: var(--blue-font-size-xs);
+  color: var(--blue-color-text-secondary);
+}
+
+.fuel-price-page__change-prices {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 6px;
+  margin-top: var(--blue-space-1);
+  font-variant-numeric: tabular-nums;
+}
+
+.fuel-price-page__change-from {
+  font-size: var(--blue-font-size-sm);
+  color: var(--blue-color-text-secondary);
+}
+
+.fuel-price-page__change-arrow {
+  flex-shrink: 0;
+  color: var(--blue-color-text-secondary);
+}
+
+.fuel-price-page__change-to {
+  font-size: var(--blue-font-size-md);
+  font-weight: var(--blue-font-weight-semibold);
+}
+
+.fuel-price-page__change-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--blue-space-1) var(--blue-space-2);
+  font-size: var(--blue-font-size-xs);
+  color: var(--blue-color-text-secondary);
+}
+
+.fuel-price-page__no-changes {
+  margin: 0;
+  padding: var(--blue-space-4);
+  border: 1px dashed var(--blue-color-border-default);
+  border-radius: var(--blue-radius-md);
+  font-size: var(--blue-font-size-sm);
+  color: var(--blue-color-text-secondary);
+}
+
+.fuel-price-page__more {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--blue-space-1) var(--blue-space-2);
+  margin: 0;
+  font-size: var(--blue-font-size-sm);
+  color: var(--blue-color-text-secondary);
+}
+
+/* ------------------------------------------------------------------------- */
+/* A price change: an arrow and the amount; up in red (it costs more), down in */
+/* green                                                                     */
+/* ------------------------------------------------------------------------- */
+
+.fuel-change {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px var(--blue-space-2);
+  border-radius: var(--blue-radius-pill);
+  background: var(--blue-color-surface-muted);
+  color: var(--blue-color-text-secondary);
+  font-size: var(--blue-font-size-xs);
+  font-weight: var(--blue-font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+  line-height: 20px;
+  white-space: nowrap;
+}
+
+.fuel-change--up {
+  background: var(--blue-color-feedback-error-surface);
+  color: var(--blue-color-feedback-error-hover);
+}
+
+.fuel-change--down {
+  background: var(--blue-color-feedback-success-surface);
+  color: var(--blue-color-feedback-success);
+}
+
+.fuel-change__arrow {
+  flex-shrink: 0;
+}
+
+.fuel-change__percent {
+  font-weight: var(--blue-font-weight-regular);
+}
+
+/* ------------------------------------------------------------------------- */
+/* Every fuel: merchant tabs, then the search, the fuel kind and the count    */
+/* ------------------------------------------------------------------------- */
+
+.fuel-price-page__card .blue-card__header {
+  padding: 0;
+  font-weight: var(--blue-font-weight-regular);
+}
+
+.fuel-price-page__card .blue-card__body {
+  padding: 0;
+}
+
+.fuel-price-page__card .blue-card__body > .fuel-price-page__placeholder {
+  padding: var(--blue-space-4);
+}
+
+.fuel-price-page__tabs {
+  padding: var(--blue-space-1) var(--blue-space-4) 0;
+}
+
+.fuel-price-page__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--blue-space-2) var(--blue-space-3);
+  padding: var(--blue-space-3) var(--blue-space-4);
+}
+
+.fuel-price-page__search {
+  position: relative;
+  flex: 1 1 280px;
+  max-width: 400px;
+}
+
+.fuel-price-page__search-icon {
+  position: absolute;
+  top: 50%;
+  left: var(--blue-space-3);
+  color: var(--blue-color-text-secondary);
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.fuel-price-page__search .blue-input__field {
+  width: 100%;
+  padding-left: 36px;
+}
+
+.fuel-price-page__kind .blue-select__field {
+  min-width: 160px;
+}
+
+.fuel-price-page__count {
+  margin: 0 0 0 auto;
+  font-size: var(--blue-font-size-sm);
+  color: var(--blue-color-text-secondary);
+  white-space: nowrap;
+}
+
+/* A price that changed in the last days: a line on the left */
+.fuel-price-page__row--fresh > .blue-table__cell:first-child {
+  box-shadow: inset 3px 0 0 var(--blue-color-brand-primary);
+}
+
+.fuel-price-page__stack {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.fuel-price-page__stack--right {
+  align-items: flex-end;
+}
+
+.fuel-price-page__product {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--blue-space-1) var(--blue-space-2);
+}
+
+.fuel-price-page__product-name {
+  font-weight: var(--blue-font-weight-semibold);
+}
+
+.fuel-price-page__price {
+  font-weight: var(--blue-font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.fuel-price-page__muted {
+  font-size: var(--blue-font-size-xs);
+  color: var(--blue-color-text-secondary);
+}
+
+.fuel-price-page__upcoming {
+  font-size: var(--blue-font-size-xs);
+  font-weight: var(--blue-font-weight-medium);
+  color: var(--blue-color-blue-700);
+  white-space: nowrap;
+}
+
+.fuel-price-page__source {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--blue-space-1) var(--blue-space-2);
+  font-size: var(--blue-font-size-xs);
+}
+
+/* ------------------------------------------------------------------------- */
+/* One product's history (the dialog)                                         */
+/* ------------------------------------------------------------------------- */
+
+.fuel-history {
+  display: flex;
+  flex-direction: column;
+  gap: var(--blue-space-4);
+}
+
+.fuel-history__summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--blue-space-3) var(--blue-space-8);
+  padding: var(--blue-space-4);
+  border-radius: var(--blue-radius-md);
+  background: var(--blue-color-surface-subtle);
+}
+
+.fuel-history__now,
+.fuel-history__was {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.fuel-history__label {
+  font-size: var(--blue-font-size-xs);
+  font-weight: var(--blue-font-weight-semibold);
+  color: var(--blue-color-text-secondary);
+}
+
+.fuel-history__price {
+  font-size: var(--blue-font-size-2xl);
+  font-weight: var(--blue-font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.25;
+}
+
+.fuel-history__next {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--blue-space-1) var(--blue-space-2);
+  flex-basis: 100%;
+  font-size: var(--blue-font-size-sm);
+}
+
+.fuel-history__chart {
+  margin-top: var(--blue-space-2);
+}
+
+.fuel-history__single {
+  margin: 0;
+  padding: var(--blue-space-3) var(--blue-space-4);
+  border: 1px dashed var(--blue-color-border-default);
+  border-radius: var(--blue-radius-md);
+  color: var(--blue-color-text-secondary);
+}
+
+.fuel-history__heading {
+  margin: 0;
+  font-size: var(--blue-font-size-sm);
+  font-weight: var(--blue-font-weight-semibold);
+}
+
+.fuel-history__period {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--blue-space-1) var(--blue-space-2);
+  white-space: nowrap;
+}
+
+.fuel-history__row--current {
+  background: var(--blue-color-blue-50);
+}
+
+.fuel-history__row--upcoming {
+  color: var(--blue-color-text-secondary);
+}
+
+.fuel-history__quote {
+  display: -webkit-box;
+  max-width: 44ch;
+  overflow: hidden;
+  font-size: var(--blue-font-size-xs);
+  font-style: italic;
+  color: var(--blue-color-text-secondary);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+
+/* ------------------------------------------------------------------------- */
+/* The refresh's details (the dialog)                                         */
+/* ------------------------------------------------------------------------- */
+
+.fuel-run {
+  display: flex;
+  flex-direction: column;
+  gap: var(--blue-space-5);
+}
+
+/* What the last update came to: an icon, a headline in words, what it means, when and by whom */
+.fuel-run__outcome {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--blue-space-3);
+  padding: var(--blue-space-4);
+  border: 1px solid var(--blue-color-border-default);
+  border-left-width: 4px;
+  border-radius: var(--blue-radius-md);
+  background: var(--blue-color-surface-subtle);
+}
+
+.fuel-run__outcome .fuel-price-page__run-icon {
+  width: 20px;
+  height: 20px;
+  margin-top: 2px;
+}
+
+.fuel-run__outcome--info {
+  border-left-color: var(--blue-color-brand-primary);
+  background: var(--blue-color-blue-50);
+}
+
+.fuel-run__outcome--info .fuel-price-page__run-icon {
+  color: var(--blue-color-brand-primary);
+}
+
+.fuel-run__outcome--success {
+  border-left-color: var(--blue-color-feedback-success);
+  background: var(--blue-color-feedback-success-surface);
+}
+
+.fuel-run__outcome--success .fuel-price-page__run-icon {
+  color: var(--blue-color-feedback-success);
+}
+
+.fuel-run__outcome--warning {
+  border-left-color: var(--blue-color-feedback-warning);
+  background: var(--blue-color-feedback-warning-surface);
+}
+
+.fuel-run__outcome--warning .fuel-price-page__run-icon {
+  color: var(--blue-color-feedback-warning-text);
+}
+
+.fuel-run__outcome--error {
+  border-left-color: var(--blue-color-feedback-error);
+  background: var(--blue-color-feedback-error-surface);
+}
+
+.fuel-run__outcome--error .fuel-price-page__run-icon {
+  color: var(--blue-color-feedback-error-hover);
+}
+
+.fuel-run__outcome-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--blue-space-1);
+  min-width: 0;
+}
+
+.fuel-run__outcome-title {
+  margin: 0;
+  font-size: var(--blue-font-size-md);
+  font-weight: var(--blue-font-weight-semibold);
+  color: var(--blue-color-text-primary);
+}
+
+.fuel-run__outcome-text {
+  margin: 0;
+  color: var(--blue-color-text-primary);
+}
+
+.fuel-run__facts {
+  margin: var(--blue-space-1) 0 0;
+  font-size: var(--blue-font-size-xs);
+  color: var(--blue-color-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The prices the update changed */
+.fuel-run__section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--blue-space-3);
+}
+
+.fuel-run__heading {
+  display: flex;
+  align-items: center;
+  gap: var(--blue-space-2);
+  margin: 0;
+  font-size: var(--blue-font-size-sm);
+  font-weight: var(--blue-font-weight-semibold);
+}
+
+.fuel-run__count {
+  min-width: 20px;
+  padding: 0 6px;
+  border-radius: var(--blue-radius-pill);
+  background: var(--blue-color-surface-muted);
+  font-size: var(--blue-font-size-xs);
+  font-weight: var(--blue-font-weight-medium);
+  line-height: 20px;
+  text-align: center;
+  color: var(--blue-color-text-secondary);
+}
+
+.fuel-run__changed {
+  display: flex;
+  flex-direction: column;
+  gap: var(--blue-space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fuel-run__price {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--blue-space-2);
+  padding: var(--blue-space-4);
+  border: 1px solid var(--blue-color-border-default);
+  border-radius: var(--blue-radius-md);
+}
+
+.fuel-run__price-name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--blue-space-1) var(--blue-space-2);
+  margin: 0;
+  font-weight: var(--blue-font-weight-semibold);
+}
+
+.fuel-run__price-merchant {
+  font-size: var(--blue-font-size-xs);
+  font-weight: var(--blue-font-weight-regular);
+  color: var(--blue-color-text-secondary);
+}
+
+/* The price before next to the new one */
+.fuel-run__compare {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--blue-space-2);
+  width: 100%;
+}
+
+.fuel-run__value {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--blue-space-2) var(--blue-space-3);
+  border-radius: var(--blue-radius-sm);
+  background: var(--blue-color-surface-subtle);
+}
+
+.fuel-run__value--new {
+  background: var(--blue-color-blue-50);
+}
+
+.fuel-run__value-label {
+  overflow: hidden;
+  font-size: var(--blue-font-size-xs);
+  color: var(--blue-color-text-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fuel-run__value-price {
+  font-size: var(--blue-font-size-lg);
+  font-weight: var(--blue-font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+.fuel-run__value-note {
+  font-size: var(--blue-font-size-xs);
+  color: var(--blue-color-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.fuel-run__quote {
+  font-size: var(--blue-font-size-xs);
+  font-style: italic;
+  color: var(--blue-color-text-secondary);
+}
+
+/* How the prices are checked: folded away */
+.fuel-run__how {
+  border-top: 1px solid var(--blue-color-border-default);
+  padding-top: var(--blue-space-3);
+}
+
+.fuel-run__how summary {
+  width: fit-content;
+  border-radius: var(--blue-radius-sm);
+  font-size: var(--blue-font-size-sm);
+  font-weight: var(--blue-font-weight-medium);
+  color: var(--blue-color-brand-primary);
+  cursor: pointer;
+}
+
+.fuel-run__how summary:hover {
+  color: var(--blue-color-brand-primary-hover);
+}
+
+.fuel-run__how summary:focus-visible {
+  outline: 2px solid var(--blue-color-border-focus);
+  outline-offset: 2px;
+}
+
+.fuel-run__how ol {
+  display: flex;
+  flex-direction: column;
+  gap: var(--blue-space-1);
+  margin: var(--blue-space-3) 0 0;
+  padding-left: var(--blue-space-5);
+  color: var(--blue-color-text-secondary);
+}
+
+/* The cooldown, at the left of the dialog's buttons */
+.fuel-run__cooldown {
+  margin-right: auto;
+  align-self: center;
+  font-size: var(--blue-font-size-xs);
+  color: var(--blue-color-text-secondary);
+}
+
+@media (max-width: 480px) {
+  .fuel-run__compare {
+    grid-template-columns: 1fr;
+  }
+
+  .fuel-run__cooldown {
+    flex-basis: 100%;
+  }
+}
+
+/* ------------------------------------------------------------------------- */
+/* Loading: grey bars in the shape of the content                             */
+/* ------------------------------------------------------------------------- */
+
+.fuel-price-page__placeholder {
+  display: flex;
+  flex-direction: column;
+  gap: var(--blue-space-3);
+}
+
+.fuel-price-page__placeholder-line {
+  height: 14px;
+  border-radius: var(--blue-radius-sm);
+  background: linear-gradient(
+    90deg,
+    var(--blue-color-surface-muted) 25%,
+    var(--blue-color-neutral-200) 50%,
+    var(--blue-color-surface-muted) 75%
+  );
+  background-size: 200% 100%;
+  animation: fuel-price-page-shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes fuel-price-page-shimmer {
+  from { background-position: 100% 0; }
+  to { background-position: -100% 0; }
+}
+
+/* ------------------------------------------------------------------------- */
+/* Narrow screens                                                             */
+/* ------------------------------------------------------------------------- */
+
+/* The refresh goes under the title, on the left */
+@media (max-width: 900px) {
+  .fuel-price-page__refresh {
+    flex-basis: 100%;
+    align-items: flex-start;
+  }
+
+  .fuel-price-page__run {
+    justify-content: flex-start;
+  }
+}
+
+/* Phones: the changes scroll sideways; each product is a card (the table's stacked layout) */
+@media (max-width: 640px) {
+  .fuel-price-page {
+    gap: var(--blue-space-4);
+  }
+
+  .fuel-price-page__changes {
+    grid-auto-columns: minmax(220px, 78%);
+    grid-auto-flow: column;
+    grid-template-columns: none;
+    margin: 0 calc(-1 * var(--blue-space-4));
+    padding: 2px var(--blue-space-4) var(--blue-space-2);
+    overflow-x: auto;
+    scroll-padding: 0 var(--blue-space-4);
+    scroll-snap-type: x mandatory;
+  }
+
+  .fuel-price-page__changes > * {
+    scroll-snap-align: start;
+  }
+
+  .fuel-price-page__search {
+    flex-basis: 100%;
+    max-width: none;
+  }
+
+  .fuel-price-page__kind {
+    flex: 1 1 auto;
+  }
+
+  .fuel-price-page__kind .blue-select__field {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .blue-table__cell--right .fuel-price-page__stack--right {
+    align-items: flex-start;
+  }
+
+  .fuel-price-page__row--fresh > .blue-table__cell:first-child {
+    box-shadow: none;
+  }
+
+  .fuel-price-page__row--fresh {
+    box-shadow: inset 3px 0 0 var(--blue-color-brand-primary);
+  }
+
+  .fuel-history__summary {
+    gap: var(--blue-space-3) var(--blue-space-6);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fuel-price-page__placeholder-line {
+    animation: none;
+  }
+
+  .fuel-price-page__change {
+    transition: none;
+  }
+}

@@ -18,23 +18,8 @@ const report = {
     title: "There is no reimbursement {{code}}",
     text: "Check the code, or find the report in the BBM list.",
   },
-  notBbm: {
-    title: "{{code}} is not a BBM reimbursement",
-    text: "It is a “{{type}}” reimbursement, which this page does not show.",
-  },
   header: {
-    revisedAfterApproval: "Revised after approval",
-    revisedAfterApprovalTitle: "Revision {{no}} was approved before this one arrived. Check what changed.",
     received: "Received in {{month}}",
-  },
-  revision: {
-    label: "Revision {{no}}",
-    tabs: "Revision",
-    tab: "Revision {{no}} · {{month}}",
-    tabCurrent: "Revision {{no}} (current) · {{month}}",
-    oldTitle: "This is revision {{no}}, not the current one",
-    oldText:
-      "Revision {{no}} replaced it in {{month}}. It is kept so the OCR result stays linked to the data it was compared with.",
   },
   receipt: "Receipt",
   files: {
@@ -51,22 +36,18 @@ const report = {
     rejectedByYou: "Rejected by you",
     reopenedBy: "{{name}} took the decision back",
     reopenedByYou: "You took the decision back",
-    old: {
-      decided: "Revision {{no}}: {{decided}}",
-      title: "Revision {{no}} is not the current one",
-      text: "Approving and rejecting is done on revision {{no}}, the one sent last.",
-      show: "Show revision {{no}}",
-    },
     open: {
       processingTitle: "The OCR is still reading it",
       title: "Approve or reject this report",
-      previousRejected: "Revision {{no}} was rejected. Approve only if this revision fixes it.",
       processing: "You can decide from the receipt file now, or wait until the OCR has compared it.",
       failed: "The OCR couldn't read the receipt file: check it against the submitted items yourself.",
       fileMissing: "The receipt file is missing: ask for it again, for example by rejecting the report.",
       oneDifference: "Approve if the difference is an OCR misread; reject if it is a real mismatch.",
       differences: "Approve if the {{n}} differences are OCR misreads; reject if one is a real mismatch.",
       noDifference: "Check the receipt file against the submitted items.",
+      doubleClaim: "Its receipt was already claimed in {{code}}: reject if it's the same receipt, approve if it isn't.",
+      doubleClaimMany:
+        "Its receipt was already claimed in {{count}} other reports: reject if it's the same receipt, approve if it isn't.",
     },
     auto: {
       title: "Approved by the OCR",
@@ -85,22 +66,53 @@ const report = {
   rejectDialog: {
     title: "Reject {{code}}?",
     submit: "Reject report",
-    text: "{{name}} can send a corrected report: it comes back as revision {{no}}, and a reviewer checks it even if the OCR finds no difference.",
+    text: "A report can't be changed: {{name}} can send a corrected one, which comes in under a new code and is compared like any new report.",
     reasonLabel: "Why is it rejected?",
     reasonHelp: "Shown with the report and in the Excel export · {{length}}/{{max}}",
     addReason: "Add a reason",
     reasonTooLong: "Keep the reason under {{max}} characters.",
     // Ready-made reasons
     suggestion: "{{what}}: {{submitted}} was submitted, the receipt shows {{read}}.",
+    priceSuggestion: "{{what}}: the receipt shows {{read}}, but the amount ÷ volume is {{computed}}.",
     fieldOfItem: "{{field}} of item {{item}}",
     unreadable: "The receipt file can't be read.",
     claimedBefore: "This receipt was already claimed in another report.",
+    claimedIn: "This receipt was already claimed in {{code}}.",
   },
-  previousRejection: {
-    title: "Revision {{no}} was rejected",
-    byYou: "You rejected it on {{date}}: “{{reason}}”",
-    by: "{{name}} rejected it on {{date}}: “{{reason}}”",
-    check: "Check that revision {{no}} fixes it before approving.",
+  sameReceipt: {
+    title: "Its receipt was already claimed in {{code}}",
+    titleMany: "Its receipt was already claimed in {{count}} other reports",
+    textApproved:
+      "{{code}} is already approved, so this receipt is likely claimed twice. Compare the receipts, then reject this " +
+      "report if they are the same receipt.",
+    textOpen: "{{code}} isn't decided either. Compare the receipts: approve only one report for one receipt.",
+    textRejected:
+      "{{code}} was rejected, but it was sent by another employee ({{name}}). Make sure this receipt is really " +
+      "{{employee}}'s.",
+    card: "The same receipt in other reports",
+    cardMeta: "The same file, or the same employee's receipt with the same day, amount and volume",
+    kind: {
+      double_claim: "Claimed earlier",
+      resubmission: "Rejected, resent here",
+      claimed_again: "Claimed again later",
+      resubmitted: "Resent later",
+    },
+    kindText: {
+      double_claim: "Received earlier with the same receipt: this report may claim it twice.",
+      resubmission: "The same employee's rejected report: this report sends it again. Check that the reason was fixed.",
+      claimed_again: "Received later with the same receipt: it is flagged there.",
+      resubmitted: "This report was rejected, then the employee sent the receipt again in that report.",
+    },
+    open: "Open {{code}} in a new tab",
+    received: "Received {{date}}",
+    sameEmployee: "The same employee",
+    otherEmployee: "Another employee: {{name}} · {{number}}",
+    sameFile: "The exact same file: {{name}}",
+    sameNumbers: "Receipt of {{day}} · {{amount}} · {{volume}} L",
+    byOcr: "By the OCR",
+    ocrFound: "Differences the OCR also found",
+    compare: "Compare with the report",
+    decidedBy: "By {{name}}, {{date}}",
   },
   // Toasts after deciding, undoing or retrying the OCR
   toast: {
@@ -122,16 +134,7 @@ const report = {
     title: "History",
     newestFirst: "Newest first",
     received: "Received",
-    sentAgain: "Sent again as revision {{no}}",
     read: "Read by the OCR: {{status}} ({{hint}})",
-  },
-  changes: {
-    title: "Changed since revision {{no}}",
-    none: "Nothing in the items, the total or the files.",
-    what: "What changed",
-    item: "Item {{id}}",
-    added: "Added ({{amount}})",
-    removed: "Removed",
   },
   // Why the OCR couldn't read a file (the backend's reason code), and what the reviewer can do about it
   failure: {
@@ -211,14 +214,18 @@ const report = {
     extraText: "Check whether this receipt belongs to the report.",
     notSubmitted: "Not submitted",
     couldNotRead: "Couldn't read",
-    fits: "Fits {{formula}}",
-    fitsOther: "Fits the other numbers on the receipt",
-    is: "{{formula}} is {{expected}}",
-    isAbout: "{{formula}} is about {{expected}}",
-    otherNumbersGive: "The other numbers on the receipt give {{expected}}",
+    // Why, under both values: which side the receipt's other numbers support, and how
+    ocrRight: "The OCR is likely right: {{because}}.",
+    submittedRight: "The submitted value is likely right: {{because}}.",
+    becauseIs: "{{formula}} is {{expected}}, the same as {{side}}",
+    becauseAbout: "{{formula}} is about {{expected}}, which fits {{side}}",
+    becauseOther: "the other numbers on the receipt give {{expected}}, which fits {{side}}",
+    becauseFits: "the other numbers on the receipt fit {{side}}",
+    sideOcr: "what the OCR read",
+    sideSubmitted: "the submitted value",
     submittedTitle: "{{what}} doesn't match the receipt",
     submittedSummary: "The other numbers on the receipt point to a mistake in the submitted data.",
-    submittedHint: "{{slip}}: most likely a typing mistake in the submitted data.",
+    submittedHint: "{{slip}}: most likely a typing mistake when it was submitted.",
     unreadTitle: "The OCR couldn't read the {{what}}",
     misreadTitle: "The OCR misread the {{what}}",
     ocrSummary: "The other numbers on the receipt fit the submitted value, so it is right.",
@@ -227,6 +234,13 @@ const report = {
     unsure: "The OCR was only {{percent}} sure it read this right.",
     differsTitle: "{{what}} differs from the receipt",
     checkWhich: "Check the receipt to see which one is right.",
+    // The price per liter isn't submitted: the amount ÷ volume against the price on the receipt
+    computed: "Submitted amount ÷ volume",
+    computedFrom: "The submitted price per liter is worked out as {{amount}} ÷ {{volume}} L.",
+    priceTitle: "{{what}} on the receipt doesn't fit the amount and volume",
+    priceSummary:
+      "Either the OCR misread the price, or the amount or volume on the receipt was changed. Check the receipt.",
+    priceApart: "They are {{gap}} apart; up to {{percent}} is allowed for the pump's rounding.",
   },
   // The headline when the grand total is the only difference
   totalHeadline: {
@@ -252,13 +266,37 @@ const report = {
   /** "a, b and c" */
   and: "{{list}} and {{last}}",
   items: {
-    title: "Submitted items",
+    title: "Items submitted by the employee",
     meta: "By item ID, as sent by the other system",
     item: "Item",
+    computed: "computed",
+    computedTitle:
+      "Not submitted: the amount divided by the volume. Compared with the price per liter on the receipt; up to {{percent}} apart is fine.",
+  },
+  // The fuel price page's price of each item's fuel (DKI Jakarta), next to the price per liter worked out from it
+  fuelPrice: {
+    title: "Fuel prices",
+    meta: "Price per liter in DKI Jakarta",
+    open: "Open the Fuel prices page",
+    fuel: "Fuel",
+    computedNote: "amount ÷ volume",
+    onDate: "On the receipt date",
+    onDateHint: "to compare with",
+    today: "Today",
+    fromReceipt: "{{merchant}} · from the receipt ({{type}})",
+    unknownFuel: "Can't be told",
+    unknownFuelNote: "“{{type}}” isn't one fuel of the Fuel prices page, and the receipt doesn't name one",
+    noData: "No data yet",
+    notListed: "Not listed",
+    since: "Since {{date}} · {{source}}",
+    gap: "{{percent}} apart from the worked-out price per liter",
+    note: "Prices from the Fuel prices page. Marked when the worked-out price per liter is more than {{percent}} apart from the price on the receipt date; prices outside Jakarta can differ a little.",
   },
   ocr: {
     title: "What the OCR read",
     titleOf: "What the OCR read: {{name}}",
+    comparedWith_one: "Compared with {{items}}",
+    comparedWith_other: "Compared with {{items}}",
     printedDate: "Date (printed)",
     notSure: "The OCR was not sure about this value",
     sure: "{{percent}} sure",

@@ -28,6 +28,15 @@ export const BBM_FIELDS: Record<string, { kind: FieldKind }> = {
   grand_total: { kind: "money" },
 };
 
+/** How far apart the price per liter on a receipt and the submitted amount ÷ volume may be before they differ (the
+ *  backend's PRODUCT_REL_TOLERANCE in receipt_validation.py): the pump rounds the amount. */
+export const PRICE_TOLERANCE = 0.005;
+
+/** PRICE_TOLERANCE as text: "0,5%". */
+export function priceToleranceText(): string {
+  return `${formatNumber(PRICE_TOLERANCE * 100)}%`;
+}
+
 /** The name of a field in the current language ("Price per liter", "Harga per liter"). */
 export function fieldLabel(field: string): string {
   return field in BBM_FIELDS ? t(`fields.${field as BbmField}`) : field.replaceAll("_", " ");

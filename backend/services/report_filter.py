@@ -1,12 +1,10 @@
 """The filter of the report list, as the website sends it: as query parameters to GET /api/reimbursements, /summary
 and /codes, and in the JSON body of the Excel export and "Retry OCR on all". Checked here once for all of them.
 
-    type    the reimbursement type (bbm)
-    period  "all" or a month like "2026-10": the reports whose current revision was received in it, in WIB for every
-            reviewer (MONTH_ZONE)
+    period  "all" or a month like "2026-10": the reports received in it, in WIB for every reviewer (MONTH_ZONE)
     status  "all" or needs_review / processing / approved / rejected
     by      a part of the status: with approved how they were approved (matched / proceed / reviewer), with
-            needs_review why they need review (differences / failed)
+            needs_review why they need review (duplicate / differences / failed)
     q       search text, in the code, the employee's name or number (any case)
     sort    a column, descending with a "-" in front: code, employee, received, total, differences, status
             (default -received: newest first)
@@ -25,7 +23,7 @@ STATUSES = ("needs_review", "processing", "approved", "rejected")
 # The parts each status has (as the website's STATUS_PARTS)
 STATUS_PARTS = {
     "approved": ("matched", "proceed", "reviewer"),
-    "needs_review": ("differences", "failed"),
+    "needs_review": ("duplicate", "differences", "failed"),
 }
 MAX_SEARCH_LENGTH = 100
 DEFAULT_UTC_OFFSET = 420  # WIB
@@ -55,13 +53,8 @@ class ReportFilter:
     page: int
 
 
-def parse(values, types):
-    """The filter in values (request.args, or a JSON body as a dict); types: the reimbursement types allowed (an
-    empty type means every type). Raises FilterError."""
-    reimbursement_type = _text(values, "type") or None
-    if reimbursement_type is not None and reimbursement_type not in types:
-        raise FilterError("invalid_type", f"type must be one of: {', '.join(types)}")
-
+def parse(values):
+    """The filter in values (request.args, or a JSON body as a dict). Raises FilterError."""
     utc_offset = _integer(values, "tz", DEFAULT_UTC_OFFSET)
     if not -720 <= utc_offset <= 840:
         raise FilterError("invalid_tz", "tz must be minutes east of UTC, from -720 to 840.")
@@ -98,7 +91,6 @@ def parse(values, types):
         raise FilterError("invalid_page", "page must be a number from 1.")
 
     query = ReportQuery(
-        reimbursement_type=reimbursement_type,
         received_from=received_from,
         received_to=received_to,
         status=None if status == "all" else status,

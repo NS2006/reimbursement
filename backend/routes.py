@@ -6,6 +6,7 @@ from backend.services import (
     comment_service,
     dummy_receipt_service,
     export_service,
+    fuel_price_service,
     ocr_service,
     reimbursement_service,
     review_service,
@@ -31,6 +32,8 @@ bp.add_url_rule("/reimbursements/<code>/ocr/retry", view_func=ocr_service.retry_
 bp.add_url_rule("/reimbursements/<code>/comments", view_func=comment_service.add_comment, methods=["POST"])
 bp.add_url_rule("/reimbursements/<code>/comments/<int:comment_id>", view_func=comment_service.edit_comment, methods=["PATCH"])
 bp.add_url_rule("/reimbursements/<code>/comments/<int:comment_id>", view_func=comment_service.delete_comment, methods=["DELETE"])
+bp.add_url_rule("/fuel-prices", view_func=fuel_price_service.list_fuel_prices, methods=["GET"])
+bp.add_url_rule("/fuel-prices/refresh", view_func=fuel_price_service.queue_refresh, methods=["POST"])
 
 # For other systems: they send their reimbursement reports here
 bp.add_url_rule("/reimbursements", view_func=reimbursement_service.store_reimbursements, methods=["POST"])

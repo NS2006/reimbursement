@@ -312,6 +312,7 @@ function StatusFilters({ controller }: { controller: BbmController }) {
 
 /** What to keep in mind about the reports of a part (read when shown, in the current language). */
 const PART_HINTS: Partial<Record<StatusPart, () => string>> = {
+  duplicate: () => t("bbmList:partHints.duplicate"),
   proceed: () => t("bbmList:partHints.proceed"),
   failed: () => t("bbmList:partHints.failed"),
 };
@@ -364,7 +365,6 @@ function columnsFor(): BlueTableColumn<ReimbursementSummary>[] {
             {report.reimbursement_code}
           </BlueLink>
           <ReportExtras report={report} />
-          {report.previously_approved ? <RevisedAfterApproval /> : null}
         </span>
       ),
     },
@@ -433,30 +433,18 @@ function columnsFor(): BlueTableColumn<ReimbursementSummary>[] {
   ];
 }
 
-/** "Revision 2 · 2 photos" under the code, when the report was revised or has more than one photo. */
+/** "2 files" under the code, when the report has more than one receipt file. */
 function ReportExtras({ report }: { report: ReimbursementSummary }) {
-  const extras = [
-    report.revision_no > 1 ? t("bbmList:report.revision", { number: report.revision_no }) : null,
-    report.photo_count > 1 ? t("bbmList:report.files", { count: report.photo_count }) : null,
-  ].filter(Boolean);
-  return extras.length ? <span className="bbm-page__muted">{extras.join(" · ")}</span> : null;
+  return report.photo_count > 1 ? (
+    <span className="bbm-page__muted">{t("bbmList:report.files", { count: report.photo_count })}</span>
+  ) : null;
 }
 
-/** The mark of a report revised after an earlier revision was approved: the approved data changed. */
-function RevisedAfterApproval() {
-  return (
-    <BlueTag
-      className="bbm-page__revised"
-      variant="warning"
-      title={t("bbmList:report.revisedAfterApprovalHint")}
-    >
-      {t("bbmList:report.revisedAfterApproval")}
-    </BlueTag>
-  );
-}
-
-/** Under the status: who approved or rejected it, or that it came back after a rejection. */
+/** Under the status: who approved or rejected it, or that an earlier report claims the same receipt. */
 function StatusNote({ report }: { report: ReimbursementSummary }) {
+  if (report.review_status === "needs_review" && report.double_claim) {
+    return <span className="bbm-page__double-claim">{t("bbmList:report.doubleClaim")}</span>;
+  }
   const way = approvedBy(report);
   const text = report.decision
     ? t("bbmList:report.by", { name: report.decision.user_name })
@@ -464,9 +452,7 @@ function StatusNote({ report }: { report: ReimbursementSummary }) {
       ? t("bbmList:report.byOcrProceed")
       : way === "matched"
         ? t("bbmList:report.byOcrMatched")
-        : report.review_status === "needs_review" && report.previously_rejected
-          ? t("bbmList:report.sentAgain")
-          : null;
+        : null;
   return text ? <span className="bbm-page__muted">{text}</span> : null;
 }
 

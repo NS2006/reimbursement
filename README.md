@@ -22,39 +22,50 @@ every other report goes to a reviewer, who approves or rejects it on the website
 flowchart LR
     D[Darwinbox] -- "POST /api/reimbursements" --> API[Web API]
     API -- "downloads the receipt files" --> FS[(File storage<br/>GCS bucket)]
-    API -- "saves the report,<br/>queues its file" --> DB[(PostgreSQL)]
+    API -- "saves the report,<br/>queues its files" --> DB[(PostgreSQL)]
     W[OCR worker] -- "next queued file" --> DB
     W -- "reads the receipt<br/>with Claude" --> FS
     W -- "reading and comparison" --> DB
     R[Reviewers] --> WEB[Website] --> API
 ```
 
-1. **Receive.** Darwinbox sends reports in batches (about once a week). The API checks each report, downloads its
-   receipt file right away (Darwinbox's links expire after 10 minutes), keeps it in the file storage and saves the
-   report as a new revision. A report sent again with the same data stores nothing new.
-2. **Read.** The OCR worker takes the queued files one by one. Claude (through the Claude Code CLI) reads every
-   receipt on the file into structured data: date, products, liters, prices, totals.
-3. **Compare.** Plain code pairs the receipts with the submitted items and compares them field by field. A difference
-   that is only an OCR misread (the receipt's own arithmetic proves the submitted value right) is explained; every
-   other difference is flagged.
+1. **Receive.** Darwinbox sends reports in batches (about once a week). The API checks each report, downloads the
+   receipt files of its items right away (Darwinbox's links expire after 10 minutes), keeps them in the file storage
+   and saves the report. A report is stored once and never changed: sent again with the same data it stores nothing
+   new; a corrected report comes under a new code.
+2. **Read.** The OCR worker takes the queued files one by one (a file sent with several items is read once). Claude
+   (through the Claude Code CLI) reads every receipt on the file into structured data: date, products, liters,
+   prices, totals.
+3. **Compare.** Plain code pairs the receipts of a file with the items it was sent with and compares them field by
+   field (the fuel type Darwinbox sends, like "Pertamax 92", against the names receipts print, like "PERTAMAX"; the
+   amount ÷ the volume against the price per liter printed, within 0.5 %). A difference that is only an OCR misread
+   (the receipt's own arithmetic proves the submitted value right) is explained; every other difference is flagged.
 4. **Decide.** No differences: approved (`matched`). Only explained misreads: approved (`proceed`). Anything else:
-   the report needs review.
+   the report needs review. So does a report whose receipt an earlier report already claimed (a possible double
+   claim: the same file, or the same employee's receipt with the same day, amount and volume), whatever the OCR
+   found; resending a receipt a reviewer rejected is a resubmission, not a double claim.
 5. **Review.** Reviewers work through the reports that need review on the website. They see the receipt next to the
    submitted data with every difference marked, then approve or reject with a reason. They can also comment,
    spot-check the automatic approvals and export a list to Excel.
+
+**Fuel prices.** The website also lists the DKI Jakarta price per liter of every fuel at Pertamina, Shell, BP and
+Vivo, with its history. The OCR worker refreshes them from the web when someone presses "Update from the web" or a
+new batch of reports arrives, at most once a day whichever starts it: Claude reads Pertamina's and Shell's own price lists, and
+recent news articles for BP and Vivo (they publish none that can be read). A new price is stored only when the line
+quoted from the page backs it, and, from the news, two news sites agree (see
+[backend/README.md](backend/README.md#fuel-price-refresh)).
 
 ### Review statuses
 
 | Status | Meaning |
 |---|---|
-| **Needs review** | A reviewer must decide: the OCR found differences it can't explain, or it couldn't read the file (after 3 tries) |
+| **Needs review** | A reviewer must decide: an earlier report claims the same receipt (possible double claim), the OCR found differences it can't explain, or it couldn't read the file (after 3 tries) |
 | **Processing** | The OCR hasn't read the file yet |
 | **Approved** | The receipt matches (`matched`), the only differences are OCR misreads (`proceed`), or a reviewer approved it |
-| **Rejected** | A reviewer rejected it; Darwinbox can send a corrected report as a new revision |
+| **Rejected** | A reviewer rejected it; Darwinbox can send a corrected report under a new code |
 
-A reviewer's decision always wins and stays final; a later OCR reading never changes it. Every revision is judged on
-its own: a corrected report sent after a rejection is approved automatically when its receipt agrees (the website
-marks it as sent again after a rejection).
+A reviewer's decision always wins and stays final; a later OCR reading never changes it. A corrected report sent
+after a rejection is a new report with its own code, judged on its own like any other.
 
 Every report belongs to the month it was **received** in (WIB), not the day the employee submitted it: a claim
 submitted on 31-10 and sent by Darwinbox on 2-11 counts for November.
@@ -91,7 +102,19 @@ logged in (`claude auth login`) for the OCR worker.
    ```
 
 To send reports the way Darwinbox does, run one of the PowerShell scripts in [curl-testing/](curl-testing/) while the
-API is running. The worker reads their receipts within a minute or so.
+API is running (`curl-1.txt` .. `curl-4.txt`, about 20 reports each). The worker reads their receipts within a minute
+or so.
+
+For a month's volume, [send_month.ps1](curl-testing/send_month.ps1) sends 200 reports a week, in requests of 100, for
+the weeks you pick. Every new report is one Claude OCR run (about 25 seconds), so a week is about an hour and a half
+of reading; sending a week again costs nothing.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File curl-testing\send_month.ps1 -Week 1
+```
+
+The sample data already has such a month with its OCR results, at no cost: September 2026 (800 reports, from
+[dummy_month.sql](backend/database/seeds/dummy_month.sql)).
 
 After pulling a change to `backend/database/schema.sql`, run `py -m backend.database.reset rebuild` again; it
 deletes everything in your local database and seeds it again.

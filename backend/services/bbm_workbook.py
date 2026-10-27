@@ -1,9 +1,10 @@
-"""The Excel workbook of the BBM export: one sheet with every report the reviewer had in the list (its current
-revision), one row per receipt, the submitted values next to what the OCR read:
+"""The Excel workbook of the BBM export: one sheet with every report the reviewer had in the list, one row per
+receipt, the submitted values next to what the OCR read:
 
-    Report         code (links to the report page), employee, received, revision, status, decision and the totals
+    Report         code (links to the report page), employee, received, status, decision and the totals
                    (the totals on the report's first row only, so the totals row counts each report once)
-    Receipt        the item and its photo, then each field as submitted and as the OCR read it
+    Receipt        the item and its photo, then each field as submitted and as the OCR read it (the price per liter is
+                   not submitted: the computed one, amount / volume)
     What differs   the fields that differ, or "Not on receipt" / "Not submitted"
 
 Amber cells differ, orange values are ones the OCR was unsure of, and the rows of a report share a band.
@@ -16,6 +17,7 @@ from urllib.parse import quote
 
 from openpyxl import Workbook
 
+from backend.jobs.bbm_ocr.product_labels import matches_fuel_type
 from backend.services.report_filter import MONTH_ZONE
 from backend.services.xlsx_style import (
     DIFFERS_FILL,
@@ -52,6 +54,7 @@ STATUS_PARTS = {
         "reviewer": "By a reviewer",
     },
     "needs_review": {
+        "duplicate": "Possible double claim",
         "differences": "Differences",
         "failed": "OCR couldn't read",
     },
@@ -69,7 +72,8 @@ FIELD_LABELS = {
     "grand_total": "Grand total",
 }
 
-# Read on the receipt and compared with the submitted item, each shown as a Submitted / OCR pair
+# Read on the receipt and shown next to the submitted item, each as a Submitted / OCR pair (the price per liter as
+# Computed / OCR: not submitted, the amount divided by the volume)
 COMPARED = ["product_name", "date_of_expense", "price_per_liter", "volume_liter", "total_price"]
 
 # The OCR is unsure of a value below this confidence (the website and the OCR validation use the same line)
@@ -84,7 +88,6 @@ COLUMNS = [
     # The month only: the other system sends reports in batches (Darwinbox about once a week), so the day they
     # arrive is not when the employee submitted them. A report belongs to the month (WIB) it was received in.
     Column("Received", 16, FMT["month"]),
-    Column("Revision", 11, FMT["count"], "center"),
     Column("Status", 16),
     Column("Decision", 34, wrap=True),
     Column("Submitted total", 20, FMT["idr"], "right"),
@@ -96,7 +99,7 @@ COLUMNS = [
     Column("OCR", 22, wrap=True, group="Product"),
     Column("Submitted", 14, FMT["date"], group="Date"),
     Column("OCR", 14, wrap=True, group="Date"),
-    Column("Submitted", 14, FMT["idr"], "right", group="Price per liter"),
+    Column("Computed", 14, FMT["idr"], "right", group="Price per liter"),
     Column("OCR", 13, FMT["idr"], "right", group="Price per liter"),
     Column("Submitted", 14, FMT["number"], "right", group="Volume (L)"),
     Column("OCR", 12, FMT["number"], "right", group="Volume (L)"),
@@ -106,11 +109,11 @@ COLUMNS = [
     Column("OCR", 13, FMT["idr_or_dash"], "right", group="Discount"),
     Column("What differs", 24, wrap=True),
 ]
-TOTAL_COLUMNS = (8, 9, 10)  # Submitted total, OCR total, Gap
+TOTAL_COLUMNS = (7, 8, 9)  # Submitted total, OCR total, Gap
 
 
 def build_bbm_workbook(reports, info):
-    """reports: from reimbursement_repository.find_current_revisions, each with its "ocr_status", "review_status" and
+    """reports: from reimbursement_repository.find_reports, each with its "ocr_status", "review_status" and
     "decision" (the reviewer's decision in force, or None). info: "period"
     ("October 2026", or None for every month), "filter" (label), "search", "exported_at", "zone" (the reviewer's time
     zone) and "website_url" (for the links; or None)."""
@@ -184,11 +187,10 @@ def _count(count, noun):
 
 def _report_rows(report, info):
     """The rows of a report (at least one) and how many receipts they show."""
-    revision = report["revision"]
-    photos = revision["photos"]
+    photos = report["photos"]
     read = [photo for photo in photos if photo["ocr"]]
     differences = [difference for photo in read for difference in photo["ocr"]["differences"]]
-    receipts = _pair(revision["items"], read, differences)
+    receipts = _pair(report["items"], read, differences)
 
     # Where each difference is: on an item, on an OCR line, or on the whole report (the grand total)
     item_fields, line_fields, report_fields = defaultdict(set), defaultdict(set), set()
@@ -214,7 +216,7 @@ def _report_rows(report, info):
             note = "Not submitted"
         else:
             note = None
-        photo = photo or (photos[0] if len(photos) == 1 else None)
+        photo = photo or _own_photo(item, photos)
         rows.append([
             *(report_cells if index == 0 else _repeated(report_cells)),
             item["item_id"] if item else Styled("—", color=MUTED),
@@ -232,8 +234,8 @@ def _pair(items, read_photos, differences):
     items by date then item id, then the receipts nobody submitted.
 
     The OCR job stores which item it compared with which receipt only where a value differs. A pair without a
-    difference agrees on every value, so each remaining item goes with the remaining receipt that has the most
-    values in common with it."""
+    difference agrees on every value, so each remaining item goes with the remaining receipt of its own files that
+    has the most values in common with it."""
     lines = [(photo, line) for photo in read_photos for line in photo["ocr"]["lines"]]
     line_by_id = {line["id"]: (photo, line) for photo, line in lines}
     paired, used = {}, set()
@@ -247,7 +249,8 @@ def _pair(items, read_photos, differences):
     for item in items:
         if item["id"] in paired:
             continue
-        shared = [(_shared(item, line), line["id"]) for _, line in lines if line["id"] not in used]
+        shared = [(_shared(item, line), line["id"]) for photo, line in lines
+                  if line["id"] not in used and photo["id"] in item["photo_ids"]]
         best = max(shared, key=lambda candidate: candidate[0], default=(0, None))
         if best[0] > 0:
             paired[item["id"]] = best[1]
@@ -259,18 +262,20 @@ def _pair(items, read_photos, differences):
 
 def _shared(item, line):
     """How many values an item and a receipt line have in common."""
-    same = sum(item[field] is not None and item[field] == line[field]
-               for field in ("price_per_liter", "volume_liter", "total_price"))
-    same += _text(item["product_name"]) == _text(line["product_name"]) != ""
+    same = sum(item[field] is not None and item[field] == line[field] for field in ("volume_liter", "total_price"))
+    same += line["product_name"] is not None and matches_fuel_type(line["product_name"], item["product_name"])
     return same
 
 
-def _text(value):
-    return " ".join(str(value or "").split()).casefold()
+def _own_photo(item, photos):
+    """The photo of an item without a receipt line: its only file (or the report's only one), else None."""
+    if item and len(item["photo_ids"]) == 1:
+        return next((photo for photo in photos if photo["id"] == item["photo_ids"][0]), None)
+    return photos[0] if len(photos) == 1 else None
 
 
 def _natural(text):
-    """"RB-2" before "RB-10"."""
+    """"EREP_2" before "EREP_10"."""
     return [int(part) if part.isdigit() else part for part in re.split(r"(\d+)", text)]
 
 
@@ -279,21 +284,20 @@ def _natural(text):
 # ---------------------------------------------------------------------------
 
 def _report_cells(report, read, info):
-    """Code, employee, employee no, received, revision, status, decision, submitted total, OCR total and gap."""
-    revision = report["revision"]
+    """Code, employee, employee no, received, status, decision, submitted total, OCR total and gap."""
     code = report["reimbursement_code"]
     link = f"{info['website_url']}/bbm/{quote(code, safe='')}" if info["website_url"] else None
     label, color = STATUSES[report["review_status"]]
 
     totals = [result["ocr"]["grand_total"] for result in read]
-    if read and len(read) == len(revision["photos"]) and all(total is not None for total in totals):
+    if read and len(read) == len(report["photos"]) and all(total is not None for total in totals):
         ocr_total = sum(totals)
-        gap = ocr_total - revision["grand_total"]
+        gap = ocr_total - report["grand_total"]
         unsure = [photo for photo in read if _unsure(photo["ocr"]["confidence_grand_total"])]
         ocr_cell = Styled(ocr_total, color=WARNING if unsure else None, bold=bool(unsure), note=_total_note(read, unsure))
         gap_cell = Styled(gap, color=NEGATIVE if gap else MUTED, bold=bool(gap))
-    elif len(read) < len(revision["photos"]):
-        ocr_cell, gap_cell = Styled(_unread_note(revision["photos"]), color=MUTED, italic=True), None
+    elif len(read) < len(report["photos"]):
+        ocr_cell, gap_cell = Styled(_unread_note(report["photos"]), color=MUTED, italic=True), None
     else:
         ocr_cell, gap_cell = _null(), None
 
@@ -301,11 +305,10 @@ def _report_cells(report, read, info):
         Styled(code, bold=True, link=link),
         report["employee_name"],
         report["employee_no"],
-        excel_month(revision["received_at"], MONTH_ZONE),
-        revision["revision_no"],
+        excel_month(report["received_at"], MONTH_ZONE),
         Styled(label, color=color, bold=True),
         _decision(report, info),
-        revision["grand_total"],
+        report["grand_total"],
         ocr_cell,
         gap_cell,
     ]
@@ -320,7 +323,7 @@ def _repeated(report_cells):
     """The report's cells on its next rows: greyed out, still there so filters and sorting keep the rows together;
     the totals only once, on the first row."""
     values = [cell.value if isinstance(cell, Styled) else cell for cell in report_cells]
-    return [Styled(value, color=MUTED) for value in values[:7]] + [None, None, None]
+    return [Styled(value, color=MUTED) for value in values[:6]] + [None, None, None]
 
 
 def _decision(report, info):
@@ -334,8 +337,6 @@ def _decision(report, info):
     if report["review_status"] == "approved":
         return Styled("By the OCR: the receipt matches" if report["ocr_status"] == "matched"
                       else "By the OCR: the differences are OCR misreads", color=MUTED)
-    if report["revision"]["previously_rejected"]:
-        return Styled("Sent again after a rejection", color=MUTED)
     return None
 
 

@@ -1,0 +1,183 @@
+// The fuel price page (pages/FuelPricePage.tsx, controllers/FuelPriceController.ts, components/PriceStepChart.tsx).
+
+const fuelPrice = {
+  title: "Fuel prices",
+  subtitle: "The price per liter in DKI Jakarta at each merchant, and how it changed.",
+  loading: "Loading the fuel prices…",
+  loadError: "Couldn't load the fuel prices",
+  // The refresh from the web
+  update: {
+    button: "Update from the web",
+    busy: "Updating…",
+    tooSoon: "It can be updated again from {{time}}.",
+    details: "Details",
+  },
+  // The line under the button
+  run: {
+    never: "Not updated from the web yet",
+    queuedSummary: "Update queued {{time}}",
+    runningSummary: "Claude is searching the web since {{time}}",
+    doneUnchanged: "Checked the web {{time}}: nothing changed",
+    doneStored_one: "Updated from the web {{time}}: {{count}} new price",
+    doneStored_other: "Updated from the web {{time}}: {{count}} new prices",
+    failedSummary: "The update of {{time}} failed",
+    noError: "No reason was given.",
+  },
+  // The dialog: what the last update came to, the prices it didn't use, and how prices are checked
+  details: {
+    title: "Update from the web",
+    never: "Not updated from the web yet",
+    neverText: "The prices shown are the ones the app started with. Update to look for newer prices.",
+    outcome: {
+      queued: "Waiting for the worker",
+      queuedText: "The update is queued. Once the worker takes it, it usually takes 2–3 minutes; this page updates by itself.",
+      running: "Claude is looking for prices",
+      runningText: "It usually takes 2–3 minutes; this page updates by itself.",
+      unchanged: "All prices are still the same",
+      unchangedText_one: "The price of {{count}} product was checked on the web: it hasn't changed.",
+      unchangedText_other: "The prices of {{count}} products were checked on the web: none has changed.",
+      stored_one: "{{count}} new price saved",
+      stored_other: "{{count}} new prices saved",
+      storedText_one: "The price of {{count}} product was checked on the web; what changed is below.",
+      storedText_other: "The prices of {{count}} products were checked on the web; what changed is below.",
+      nothingFound: "No prices found",
+      nothingFoundText: "The articles read gave no price of these products, so nothing changed.",
+      failed: "The update failed",
+      failedRetry: "No price was changed. Try again later.",
+    },
+    by: "by {{name}}",
+    byBatch: "started by a new batch of reports",
+    took_one: "took {{count}} minute",
+    took_other: "took {{count}} minutes",
+    tookUnderMinute: "took under a minute",
+    changedTitle: "Prices that changed",
+    before: "Before",
+    after: "New price",
+    from: "from {{date}}",
+    since: "since {{date}}",
+    how: "How are the prices checked?",
+    howSearch: "Pertamina's and Shell's own price lists are read first. For BP and Vivo, which publish none that can be read, Claude searches a few known news sites for the newest articles about their prices.",
+    howRead: "The app downloads the lists and articles itself; Claude reads the prices off them and quotes the sentence or line for each.",
+    howQuote: "A price counts only when that sentence is on the page and names the product and the price.",
+    howNew: "A new price is used when the merchant's own list gives it, or two news sites give the same price from the same day (an article that doesn't say from which day counts from the day it was published). A product the merchant's list leaves out shows as not listed. A price entered by hand is never replaced.",
+    howWhen: "There is at most one update a day: the button or a new batch of reports can start one only a day after the last update, whichever started it.",
+  },
+  // Why an update failed (fuel_price_run.error)
+  error: {
+    claude_unavailable: "Claude couldn't run: not signed in, a usage limit, or the service is down.",
+    timeout: "Claude took too long to search.",
+    no_answer: "Claude finished without an answer.",
+    over_budget: "The search reached its cost limit.",
+    no_articles: "Neither the merchants' price lists nor any article on the known news sites could be opened.",
+    worker_error: "The worker ran into an error.",
+    not_started: "No worker took the update within 2 hours: the OCR worker isn't running.",
+    stale: "The worker stopped before it finished.",
+    unknown: "The update failed ({{code}}).",
+  },
+  confirm: {
+    title: "Update the fuel prices from the web?",
+    text:
+      "Claude reads Pertamina's and Shell's official price lists, and recent news for BP and Vivo. It usually takes " +
+      "2–3 minutes; new prices show on this page right away.",
+    onceADay:
+      "Prices can be updated once a day, including the update a new batch of reports starts by itself: after this, " +
+      "the next one can start from {{time}}.",
+  },
+  toast: {
+    queued: "Update queued",
+    queuedText: "Claude looks for new prices in a moment.",
+    failed: "Couldn't start the update",
+  },
+  // The changes on top
+  recent: {
+    title: "Recent price changes",
+    subtitle: "The last {{days}} days, and prices announced for a later day",
+    none: "No price changed in the last {{days}} days.",
+    today: "Today",
+    since: "Since {{date}}",
+    from: "From {{date}}",
+    announced: "Announced",
+    more_one: "and {{count}} more change",
+    more_other: "and {{count}} more changes",
+    showAll: "Show all",
+    showFewer: "Show fewer",
+    open: "The price history of {{name}}",
+  },
+  // A change between two prices
+  change: {
+    up: "Up {{amount}} ({{percent}})",
+    down: "Down {{amount}} ({{percent}})",
+    same: "Unchanged",
+  },
+  filter: {
+    merchants: "Merchant",
+    allMerchants: "All",
+    kind: "Fuel kind",
+    allKinds: "All kinds",
+    search: "Search a fuel, e.g. Pertamax or 92",
+    all_one: "{{count}} product",
+    all_other: "{{count}} products",
+    someOf_one: "{{shown}} of {{count}} product",
+    someOf_other: "{{shown}} of {{count}} products",
+    noMatch: "No fuel matches the filter",
+    noMatchText: "Try another merchant, fuel kind or search.",
+    clear: "Clear the filter",
+  },
+  // The table with no fuel at all (a first deploy, or an emptied database: the next update adds them)
+  empty: {
+    title: "No fuels yet",
+    text: "Press “Update from the web” to get the fuels and their prices.",
+    running: "An update is running: the fuels show up when it's done.",
+  },
+  table: {
+    caption: "Fuel prices",
+    product: "Product",
+    merchant: "Merchant",
+    price: "Price per liter",
+    source: "Source",
+    since: "since {{date}}",
+    until: "until {{date}}",
+    upcoming: "{{price}} from {{date}}",
+    history: "History",
+    historyOf: "The price history of {{name}}",
+  },
+  fresh: {
+    today: "Today",
+    new: "New",
+  },
+  kind: {
+    ron: "RON {{ron}}",
+    gasoline: "Gasoline",
+    diesel: "Diesel",
+  },
+  price: {
+    none: "No price yet",
+    notListed: "Not listed",
+    notListedTitle: "The source listed no price for it from this day on: not sold, or not published.",
+  },
+  source: {
+    official: "Official",
+    news: "News",
+    manual: "Manual",
+    fetched: "Fetched {{time}}",
+  },
+  // One product's history (the dialog)
+  history: {
+    now: "Price today",
+    chart: "The price per liter of {{name}} over time",
+    today: "Today",
+    single: "Only one price is known so far: the chart shows once the price changes.",
+    prices: "Every price",
+    period: "Applies",
+    price: "Price per liter",
+    change: "Change",
+    source: "Source",
+    since: "Since {{date}}",
+    from: "From {{date}}",
+    range: "{{from}} – {{to}}",
+    current: "Today",
+    upcoming: "Announced",
+  },
+};
+
+export default fuelPrice;

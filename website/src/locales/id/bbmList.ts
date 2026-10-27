@@ -31,13 +31,17 @@ const bbmList: Translation<typeof en> = {
     parts: "{{status}}: bagian mana",
   },
   partHints: {
+    duplicate:
+      "Struk di setiap laporan ini juga diklaim di laporan yang diterima lebih dulu: file yang sama, atau struk " +
+      "karyawan yang sama dengan tanggal, total, dan volume yang sama. Buka laporannya untuk membandingkan keduanya: " +
+      "tolak jika struknya diklaim dua kali, setujui jika ternyata struknya berbeda.",
     proceed:
       "OCR menyetujui laporan ini karena menilai setiap perbedaannya sebagai salah baca. Periksa beberapa secara " +
       "acak: jika ada perbedaan yang memang tidak sesuai, buka laporannya lalu tolak.",
     failed:
       "Claude tidak bisa memberikan hasil baca file-file ini (waktu habis, gagal berjalan, atau jawabannya tidak bisa " +
       "dipakai), jadi tidak ada yang dibandingkan: ini tidak menunjukkan apa pun tentang struknya. Ulangi OCR untuk " +
-      "semuanya (atau untuk satu laporan, dari halaman laporannya), atau cocokkan sendiri file dengan data yang dikirim.",
+      "semuanya (atau untuk satu laporan, dari halaman laporannya), atau cocokkan sendiri file dengan data yang disubmit.",
   },
   pages: "Halaman laporan",
   table: {
@@ -67,22 +71,19 @@ const bbmList: Translation<typeof en> = {
     statusIn: "Tidak ada laporan yang diterima pada {{month}} dengan status ini.",
   },
   report: {
-    revision: "Revisi {{number}}",
     files: "{{count}} file",
-    revisedAfterApproval: "Direvisi setelah disetujui",
-    revisedAfterApprovalHint: "Revisi sebelumnya sudah disetujui sebelum revisi ini masuk. Periksa apa yang berubah.",
     by: "Oleh {{name}}",
     byOcrProceed: "Oleh OCR: hanya salah baca",
     byOcrMatched: "Oleh OCR: sesuai",
-    sentAgain: "Dikirim ulang setelah ditolak",
+    doubleClaim: "Struk sudah pernah diklaim",
   },
   ocr: {
     label: "OCR:",
     processing: "OCR: diproses",
     failed: "OCR: gagal membaca",
     same: "OCR: sama",
-    less: "Hasil baca OCR {{amount}} lebih rendah daripada yang dikirim",
-    more: "Hasil baca OCR {{amount}} lebih tinggi daripada yang dikirim",
+    less: "Hasil baca OCR {{amount}} lebih rendah daripada yang disubmit",
+    more: "Hasil baca OCR {{amount}} lebih tinggi daripada yang disubmit",
   },
   differences: {
     notYet: "Belum dibandingkan",
@@ -96,10 +97,10 @@ const bbmList: Translation<typeof en> = {
     exporting: "Mengekspor…",
     none: "Tidak ada laporan untuk diekspor",
     hint_one:
-      "Unduh laporan di daftar ini{{scope}} sebagai file Excel: satu baris per struk, data yang dikirim di samping " +
+      "Unduh laporan di daftar ini{{scope}} sebagai file Excel: satu baris per struk, data yang disubmit di samping " +
       "hasil baca OCR.",
     hint_other:
-      "Unduh {{count}} laporan di daftar ini{{scope}} sebagai file Excel: satu baris per struk, data yang dikirim di " +
+      "Unduh {{count}} laporan di daftar ini{{scope}} sebagai file Excel: satu baris per struk, data yang disubmit di " +
       "samping hasil baca OCR.",
     tooMany: "Terlalu banyak laporan untuk diekspor",
     tooManyText: "Ekspor maksimal {{max}} laporan sekaligus. Pilih bulan atau status untuk mempersingkat daftar.",

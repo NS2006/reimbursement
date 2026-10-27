@@ -315,7 +315,8 @@
   font-weight: var(--blue-font-weight-medium);
 }
 
-.bbm-page__ocr-differs {
+.bbm-page__ocr-differs,
+.bbm-page__double-claim {
   font-size: var(--blue-font-size-xs);
   font-weight: var(--blue-font-weight-semibold);
   color: var(--blue-color-feedback-error);
@@ -330,12 +331,6 @@
   display: flex;
   flex-wrap: wrap;
   gap: var(--blue-space-1);
-}
-
-/* "Revised after approval" under the code: keeps its own width in the column */
-.bbm-page__revised {
-  align-self: flex-start;
-  margin-top: 2px;
 }
 
 .bbm-page__field-count {

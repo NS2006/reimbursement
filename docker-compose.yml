@@ -33,11 +33,14 @@ services:
       - db-data:/var/lib/postgresql/data
       - ./backend/database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
       - ./backend/database/seeds/app_user.sql:/docker-entrypoint-initdb.d/02-app_user.sql:ro
+      - ./backend/database/seeds/fuel_product.sql:/docker-entrypoint-initdb.d/02a-fuel_product.sql:ro
+      - ./backend/database/seeds/fuel_price.sql:/docker-entrypoint-initdb.d/02b-fuel_price.sql:ro
       - ./backend/database/seeds/dummy_reimbursement.sql:/docker-entrypoint-initdb.d/03-dummy_reimbursement.sql:ro
       - ./backend/database/seeds/dummy_bbm_ocr.sql:/docker-entrypoint-initdb.d/04-dummy_bbm_ocr.sql:ro
       - ./backend/database/seeds/dummy_ocr_failure.sql:/docker-entrypoint-initdb.d/05-dummy_ocr_failure.sql:ro
       - ./backend/database/seeds/dummy_comment.sql:/docker-entrypoint-initdb.d/06-dummy_comment.sql:ro
       - ./backend/database/seeds/dummy_review_decision.sql:/docker-entrypoint-initdb.d/07-dummy_review_decision.sql:ro
+      - ./backend/database/seeds/same_receipt.sql:/docker-entrypoint-initdb.d/08-same_receipt.sql:ro
     ports:
       - "127.0.0.1:5433:5432"   # optional, to look inside; 5433 so it doesn't clash with your local PostgreSQL
     healthcheck:

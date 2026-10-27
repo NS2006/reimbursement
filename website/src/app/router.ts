@@ -20,7 +20,7 @@ function currentUrl() {
 }
 
 export interface AppLocation {
-  /** e.g. "/bbm/RB-007", never with a trailing slash ("/" for the home page). */
+  /** e.g. "/bbm/EREP_10007", never with a trailing slash ("/" for the home page). */
   path: string;
   params: URLSearchParams;
 }

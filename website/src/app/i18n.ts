@@ -3,12 +3,14 @@ import { initReactI18next } from "react-i18next";
 import enBbmList from "../locales/en/bbmList";
 import enCommon from "../locales/en/common";
 import enComponents from "../locales/en/components";
+import enFuelPrice from "../locales/en/fuelPrice";
 import enHome from "../locales/en/home";
 import enLogin from "../locales/en/login";
 import enReport from "../locales/en/report";
 import idBbmList from "../locales/id/bbmList";
 import idCommon from "../locales/id/common";
 import idComponents from "../locales/id/components";
+import idFuelPrice from "../locales/id/fuelPrice";
 import idHome from "../locales/id/home";
 import idLogin from "../locales/id/login";
 import idReport from "../locales/id/report";
@@ -29,8 +31,24 @@ const DEFAULT_LANGUAGE: Language = "id";
 const STORAGE_KEY = "reimbursement.language";
 
 export const resources = {
-  en: { common: enCommon, home: enHome, login: enLogin, bbmList: enBbmList, report: enReport, components: enComponents },
-  id: { common: idCommon, home: idHome, login: idLogin, bbmList: idBbmList, report: idReport, components: idComponents },
+  en: {
+    common: enCommon,
+    home: enHome,
+    login: enLogin,
+    bbmList: enBbmList,
+    report: enReport,
+    fuelPrice: enFuelPrice,
+    components: enComponents,
+  },
+  id: {
+    common: idCommon,
+    home: idHome,
+    login: idLogin,
+    bbmList: idBbmList,
+    report: idReport,
+    fuelPrice: idFuelPrice,
+    components: idComponents,
+  },
 };
 
 function isLanguage(value: unknown): value is Language {

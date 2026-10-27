@@ -13,10 +13,18 @@ Per image:
 
 Fail-safe rule: when in doubt (name or date mismatch, several numbers differ, the math cannot decide, missing or extra receipts/products) the receipt is flagged.
 
-A field the submitted data does not have (no key in its receipt or product) is not compared. The reimbursement API
-sends no discount or total per receipt, only the grand total of the file (what was paid, after discounts): pass it as
+A field the submitted data does not have (no key in its receipt or product) is not compared, and the arithmetic takes
+it from the OCR's reading of the same product (the reimbursement API sends no price per liter). The API sends no
+discount or total per receipt either, only the grand total of the file (what was paid, after discounts): pass it as
 grand_total and the file is checked as a whole instead, the totals the OCR read on its receipts against it (the same
 arithmetic decides who misread when that is the only difference).
+
+A submitted product without a price per liter still has one: its total_price / quantity. It is compared with the price
+the OCR read, allowing PRODUCT_REL_TOLERANCE (_computed_price). A difference there is always flagged, never judged by
+the arithmetic: a price the OCR misread and an amount or volume changed on the receipt look the same.
+
+Product names are matched with names_match by default (the OCR against a receipt's own spelling, as in the ground
+truth); pass names=product_labels.matches_fuel_type for the reimbursement API's fuel types.
 
 With a grand total, "matched" and "proceed" also need the receipts to back it: the smaller of their printed total and
 their amounts minus their discounts, an amount counting for no more than volume x price per liter (backed_amounts).
@@ -31,6 +39,7 @@ from backend.jobs.bbm_ocr.receipt_evaluation import (
     NUMERIC_MODE,
     assign,
     compare_receipt,
+    names_match,
     product_similarity,
     to_float,
 )
@@ -56,22 +65,22 @@ MATH_RULES = {
 # --------------------------------------------------------------------------
 # Pairing (same one-to-one assignment as receipt_evaluation.evaluate)
 # --------------------------------------------------------------------------
-def _pair_receipts(submitted, ocr, mode):
+def _pair_receipts(submitted, ocr, mode, names):
     """{submitted_index: ocr_index}"""
     sim = []
     for i, o in enumerate(ocr):
         row = []
         for j, s in enumerate(submitted):
-            _, extras, correct, _ = compare_receipt(o, s, mode)
+            _, extras, correct, _ = compare_receipt(o, s, mode, names)
             row.append(correct - 0.5 * extras + (1e-3 if i == j else 0.0))
         sim.append(row)
     return {j: i for i, j in assign(sim)}
 
 
-def _pair_products(ocr_products, submitted_products, mode):
+def _pair_products(ocr_products, submitted_products, mode, names):
     """{submitted_product_index: ocr_product_index}"""
     sim = [
-        [product_similarity(p, s, mode, i, j) for j, s in enumerate(submitted_products)]
+        [product_similarity(p, s, mode, i, j, names) for j, s in enumerate(submitted_products)]
         for i, p in enumerate(ocr_products)
     ]
     return {j: i for i, j in assign(sim)}
@@ -110,11 +119,11 @@ def _submitted_has(e, submitted_receipt, submitted_products):
     return e["field"] in submitted_products[e["product_index"]]
 
 
-def _collect_mismatches(submitted_receipt, ocr_receipt, mode):
-    _, _, _, errors = compare_receipt(ocr_receipt, submitted_receipt, mode)
+def _collect_mismatches(submitted_receipt, ocr_receipt, mode, names):
+    _, _, _, errors = compare_receipt(ocr_receipt, submitted_receipt, mode, names)
     ocr_products = ocr_receipt.get("products") or []
     submitted_products = submitted_receipt.get("products") or []
-    product_pairs = _pair_products(ocr_products, submitted_products, mode)
+    product_pairs = _pair_products(ocr_products, submitted_products, mode, names)
 
     mismatches = []
     for e in errors:
@@ -140,19 +149,66 @@ def _collect_mismatches(submitted_receipt, ocr_receipt, mode):
             m["difference_ocr_minus_submitted"] = e["diff"]
         m["resolved"] = False
         mismatches.append(m)
+
+    for j, i in sorted(product_pairs.items()):
+        m = _computed_price(submitted_products[j], ocr_products[i], j, i, mismatches)
+        if m:
+            mismatches.append(m)
     return mismatches
+
+
+# --------------------------------------------------------------------------
+# The price per liter the submitted numbers give
+# --------------------------------------------------------------------------
+PRICE_RULE = "total_price / quantity"
+
+
+def _computed_price(submitted_product, ocr_product, j, i, mismatches):
+    """
+    A submitted product without a unit_price (the reimbursement API sends none) against the price per liter the OCR
+    read on its product: its total_price / quantity should be that price, allowing the arithmetic's tolerance (_fits:
+    PRODUCT_REL_TOLERANCE, at least PRODUCT_ABS_FLOOR). None when it is, else a mismatch (field "unit_price",
+    "computed": True, with its own hint). Not compared when the OCR read no price: some receipts don't print one (the
+    MyPertamina app's transaction screen shows liters and the amount only).
+
+    Never judged by the arithmetic: the receipt's own numbers don't fit together (its volume x price is not its
+    amount), and an OCR misread of the price looks just like an amount or volume changed on the receipt. Skipped
+    when the product's quantity or total_price already differs: the price then differs because of it, and that
+    difference is judged on its own (the OCR's price is one of the numbers it is judged with).
+    """
+    if "unit_price" in submitted_product:
+        return None
+    quantity, total_price = to_float(submitted_product.get("quantity")), to_float(submitted_product.get("total_price"))
+    if not quantity or total_price is None:
+        return None
+    if any(m.get("product_index") == j and m["field"] in ("quantity", "total_price") for m in mismatches):
+        return None
+    computed = total_price / quantity
+    ocr_price = to_float(ocr_product.get("unit_price"))
+    if ocr_price is None or _fits("unit_price", ocr_price, computed):
+        return None
+    return {
+        "level": "product", "field": "unit_price", "product_index": j, "ocr_product_index": i,
+        "submitted": round(computed, 2), "ocr": ocr_product.get("unit_price"),
+        "ocr_confidence": _confidence(ocr_product, "unit_price"),
+        "difference_ocr_minus_submitted": round(ocr_price - computed, 6), "computed": True, "resolved": False,
+        "hint": (f"The price per liter on the receipt ({_fmt(ocr_price)}) is not the one the submitted numbers give "
+                 f"({PRICE_RULE} = {_fmt(computed)}), more than {PRODUCT_REL_TOLERANCE:.1%} apart. Either the OCR "
+                 f"misread the price, or the amount or volume on the receipt was changed. Check the image."),
+    }
 
 
 # --------------------------------------------------------------------------
 # Arithmetic check for a single number mismatch
 # --------------------------------------------------------------------------
-def _implied(field, receipt, product_index):
-    """The value `field` should have according to the other numbers of the same receipt (None if not computable)."""
+def _implied(field, receipt, product_index, fallback=None):
+    """The value `field` should have according to the other numbers of the same receipt (None if not computable).
+    fallback: a product whose numbers stand in for the ones the receipt's product does not have."""
     products = receipt.get("products") or []
     if field in PRODUCT_ABS_FLOOR:
         if product_index is None or product_index >= len(products):
             return None
-        p = products[product_index]
+        p = {**(fallback or {}), **products[product_index]}
         q, u, tp = to_float(p.get("quantity")), to_float(p.get("unit_price")), to_float(p.get("total_price"))
         if field == "total_price":
             return q * u if q is not None and u is not None else None
@@ -189,10 +245,13 @@ def _judge_math(m, submitted_receipt, ocr_receipt):
     Only ONE number differs, so the other numbers on the receipt were read the same by both sides.
     A real receipt is consistent with itself, so whichever value fits those other numbers is the right one.
     If the submitted value fits and the OCR value does not, the OCR misread it: harmless.
+    A number the submitted side does not have (the price per liter) is the OCR's: both sides use the same one.
     """
     field, rule = m["field"], MATH_RULES[m["field"]]
-    s_implied = _implied(field, submitted_receipt, m.get("product_index"))
-    o_implied = _implied(field, ocr_receipt, m.get("ocr_product_index"))
+    ocr_products, i = ocr_receipt.get("products") or [], m.get("ocr_product_index")
+    ocr_product = ocr_products[i] if i is not None and i < len(ocr_products) else None
+    s_implied = _implied(field, submitted_receipt, m.get("product_index"), fallback=ocr_product)
+    o_implied = _implied(field, ocr_receipt, i)
     s_fits = _fits(field, m["submitted"], s_implied)
     o_fits = _fits(field, m["ocr"], o_implied)
     m["math"] = {"rule": rule, "submitted_implied": s_implied, "ocr_implied": o_implied,
@@ -352,13 +411,14 @@ def _unbacked_claim(claimed, ocr):
 # --------------------------------------------------------------------------
 # Public functions
 # --------------------------------------------------------------------------
-def validate_receipts(submitted, ocr, mode=NUMERIC_MODE, grand_total=None):
+def validate_receipts(submitted, ocr, mode=NUMERIC_MODE, grand_total=None, names=names_match):
     """
     Validate the submitted receipts of ONE image against its OCR receipts.
 
     submitted, ocr : lists of receipt dicts (see module docstring)
     grand_total    : what was paid for the whole file, when the submitted receipts have no total of their own;
                      checked against the totals the OCR read (None: no file check)
+    names          : names(ocr_name, submitted_name) -> whether two product names are the same product
 
     Returns {"status": "matched" | "proceed" | "needs_review",
              "receipts": [{submitted_index, ocr_index, status, mismatches: [...]}],
@@ -366,18 +426,20 @@ def validate_receipts(submitted, ocr, mode=NUMERIC_MODE, grand_total=None):
              "file": [...]}               # the grand total, when it differs (at most one mismatch)
     """
     submitted, ocr = submitted or [], ocr or []
-    pairs = _pair_receipts(submitted, ocr, mode)
+    pairs = _pair_receipts(submitted, ocr, mode, names)
 
     receipts = []
     for j, s in enumerate(submitted):
         if j not in pairs:
             continue
         o = ocr[pairs[j]]
-        mismatches = _collect_mismatches(s, o, mode)
+        mismatches = _collect_mismatches(s, o, mode, names)
 
         structural = any(m.get("issue") for m in mismatches)
-        numeric = [m for m in mismatches if m.get("field") in MATH_FIELDS and not m.get("issue")]
+        numeric = [m for m in mismatches if m.get("field") in MATH_FIELDS and not m.get("issue") and not m.get("computed")]
         for m in mismatches:
+            if m.get("computed"):
+                continue  # the computed price per liter: its hint is set, and it is never judged
             if m in numeric and len(numeric) == 1 and not structural:
                 _judge_math(m, s, o)
             else:

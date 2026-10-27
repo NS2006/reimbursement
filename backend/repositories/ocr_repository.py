@@ -1,5 +1,4 @@
 from backend.database.connection import fetch_all, get_connection
-from backend.repositories.reimbursement_repository import ITEM_READERS
 
 
 # ---------------------------------------------------------------------------
@@ -32,13 +31,12 @@ def requeue_failed():
     return len(rows)
 
 
-def requeue_revision(code, revision_no):
-    """Queue the failed files of the current revision of a report again (a reviewer retrying the OCR), with their
-    attempts back at 0, and reopen their processes. Returns (outcome, detail):
+def requeue_report(code):
+    """Queue the failed files of a report again (a reviewer retrying the OCR), with their attempts back at 0, and
+    reopen their processes. Returns (outcome, detail):
 
         ("queued", how many files)
         ("not_found", None)            no report with that code
-        ("not_current", revision_no)   a newer revision arrived: detail is the current revision_no
         ("decided", decision)          a reviewer's decision is in force on it (approved / rejected)
         ("nothing_failed", None)       none of its files failed (queued again in the meantime, or read)
 
@@ -46,7 +44,7 @@ def requeue_revision(code, revision_no):
     with get_connection() as conn:
         conn.run("START TRANSACTION")
         try:
-            outcome = _requeue_revision(conn, code, revision_no)
+            outcome = _requeue_report(conn, code)
         except Exception:
             conn.run("ROLLBACK")
             raise
@@ -54,29 +52,18 @@ def requeue_revision(code, revision_no):
     return outcome
 
 
-def _requeue_revision(conn, code, revision_no):
+def _requeue_report(conn, code):
     if not conn.run("SELECT 1 FROM reimbursement_report WHERE reimbursement_code = :code FOR UPDATE", code=code):
         return "not_found", None
-    [[revision_id, current_no]] = conn.run(
-        "SELECT id, revision_no FROM reimbursement_revision WHERE reimbursement_code = :code "
-        "ORDER BY revision_no DESC LIMIT 1",
-        code=code,
-    )
-    if current_no != revision_no:
-        return "not_current", current_no
     newest = conn.run(
-        "SELECT decision FROM review_decision WHERE revision_id = :revision_id "
+        "SELECT decision FROM review_decision WHERE reimbursement_code = :code "
         "ORDER BY decided_at DESC, id DESC LIMIT 1",
-        revision_id=revision_id,
+        code=code,
     )
     if newest and newest[0][0] != "reopened":
         return "decided", newest[0][0]
 
-    rows = conn.run(
-        "UPDATE ocr_reimbursement SET status = 'queued', attempts = 0 "
-        "WHERE revision_id = :revision_id AND status = 'failed' RETURNING ocr_process_id",
-        revision_id=revision_id,
-    )
+    rows = conn.run(_REQUEUE_FAILED, codes=[code])
     if not rows:
         return "nothing_failed", None
     _reopen(conn, rows)
@@ -84,10 +71,9 @@ def _requeue_revision(conn, code, revision_no):
 
 
 def requeue_reports(codes):
-    """Queue the failed files of these reports again (a reviewer retrying the OCR on a whole list), as
-    requeue_revision does for one: only the current revision of each, and only when no decision is in force on it.
-    The report rows are locked (in code order, so two retries can't wait on each other). Returns the codes of the
-    reports queued again and how many files."""
+    """Queue the failed files of these reports again (a reviewer retrying the OCR on a whole list), as requeue_report
+    does for one: only of the reports without a decision in force. The report rows are locked (in code order, so two
+    retries can't wait on each other). Returns the codes of the reports queued again and how many files."""
     with get_connection() as conn:
         conn.run("START TRANSACTION")
         try:
@@ -96,34 +82,31 @@ def requeue_reports(codes):
                 "ORDER BY reimbursement_code FOR UPDATE",
                 codes=codes,
             )
-            rows = conn.run(
-                """
-                WITH current_revision AS (
-                    SELECT DISTINCT ON (reimbursement_code) id, reimbursement_code
-                    FROM reimbursement_revision
-                    WHERE reimbursement_code = ANY(:codes)
-                    ORDER BY reimbursement_code, revision_no DESC
-                ),
-                newest_decision AS (
-                    SELECT DISTINCT ON (d.revision_id) d.revision_id, d.decision
-                    FROM review_decision d
-                    JOIN current_revision r ON r.id = d.revision_id
-                    ORDER BY d.revision_id, d.decided_at DESC, d.id DESC
-                )
-                UPDATE ocr_reimbursement o SET status = 'queued', attempts = 0
-                FROM current_revision r
-                WHERE o.revision_id = r.id AND o.status = 'failed'
-                  AND NOT EXISTS (SELECT 1 FROM newest_decision n WHERE n.revision_id = r.id AND n.decision <> 'reopened')
-                RETURNING o.ocr_process_id, r.reimbursement_code
-                """,
+            decided = {row[0] for row in conn.run(
+                "SELECT DISTINCT ON (reimbursement_code) reimbursement_code, decision FROM review_decision "
+                "WHERE reimbursement_code = ANY(:codes) ORDER BY reimbursement_code, decided_at DESC, id DESC",
                 codes=codes,
-            )
+            ) if row[1] != "reopened"}
+            undecided = [code for code in codes if code not in decided]
+            rows = conn.run(_REQUEUE_FAILED, codes=undecided) if undecided else []
             _reopen(conn, rows)
         except Exception:
             conn.run("ROLLBACK")
             raise
         conn.run("COMMIT")
     return sorted({row[1] for row in rows}), len(rows)
+
+
+# Queues the failed files of the reports in :codes again: the newest OCR row of each file (its first attachment), when
+# it failed. Returns (ocr_process_id, reimbursement_code) of each.
+_REQUEUE_FAILED = """
+    UPDATE ocr_reimbursement o SET status = 'queued', attempts = 0
+    FROM attachment a
+    JOIN bbm_receipt i ON i.id = a.bbm_receipt_id
+    WHERE a.id = o.attachment_id AND i.reimbursement_code = ANY(:codes) AND o.status = 'failed'
+      AND NOT EXISTS (SELECT 1 FROM ocr_reimbursement n WHERE n.attachment_id = o.attachment_id AND n.id > o.id)
+    RETURNING o.ocr_process_id, i.reimbursement_code
+"""
 
 
 def _reopen(conn, rows):
@@ -137,9 +120,9 @@ def claim_next():
     yet): it becomes running (one more attempt, started now). Returns what reading it needs, or None when nothing is
     queued. Two workers never take the same file (SKIP LOCKED).
 
-    {id, ocr_process_id, revision_id, attachment_id, attempts, name, storage_path, content_type, reimbursement_type,
-     reimbursement_code, revision_no, grand_total, file_count (files of the revision), items (the submitted items of
-     the revision)}"""
+    {id, ocr_process_id, attachment_id, attempts, name, storage_path, content_type, reimbursement_code, grand_total,
+     file_count (the report's files: the same file attached to several items counts once), items (the submitted
+     items of the report the file is attached to)}"""
     with get_connection() as conn:
         claimed = fetch_all(
             conn,
@@ -147,7 +130,7 @@ def claim_next():
             UPDATE ocr_reimbursement o SET status = 'running', attempts = o.attempts + 1, started_at = now()
             WHERE o.id = (SELECT id FROM ocr_reimbursement WHERE status = 'queued'
                           ORDER BY attempts, id LIMIT 1 FOR UPDATE SKIP LOCKED)
-            RETURNING o.id, o.ocr_process_id, o.revision_id, o.attachment_id, o.attempts
+            RETURNING o.id, o.ocr_process_id, o.attachment_id, o.attempts
             """,
         )
         if not claimed:
@@ -156,26 +139,34 @@ def claim_next():
         [details] = fetch_all(
             conn,
             """
-            SELECT a.name, a.storage_path, a.content_type, p.reimbursement_type, r.reimbursement_code, r.revision_no, r.grand_total,
-                   (SELECT count(*) FROM attachment x WHERE x.revision_id = r.id) AS file_count
+            SELECT a.name, a.sha256, a.storage_path, a.content_type, r.reimbursement_code, r.grand_total,
+                   (SELECT count(DISTINCT x.sha256) FROM attachment x JOIN bbm_receipt y ON y.id = x.bbm_receipt_id
+                    WHERE y.reimbursement_code = r.reimbursement_code) AS file_count
             FROM attachment a
-            JOIN reimbursement_revision r ON r.id = a.revision_id
-            JOIN reimbursement_report p ON p.reimbursement_code = r.reimbursement_code
+            JOIN bbm_receipt i ON i.id = a.bbm_receipt_id
+            JOIN reimbursement_report r ON r.reimbursement_code = i.reimbursement_code
             WHERE a.id = :attachment_id
             """,
             attachment_id=task["attachment_id"],
         )
         task.update(details)
-        task["items"] = ITEM_READERS[task["reimbursement_type"]](conn, [task["revision_id"]])
-    for item in task["items"]:
-        del item["revision_id"]
+        task["items"] = fetch_all(
+            conn,
+            "SELECT i.id, i.item_id, i.product_name, i.date_of_expense, i.volume_liter, i.kilometer, i.total_price "
+            "FROM bbm_receipt i WHERE i.reimbursement_code = :code AND EXISTS ("
+            "    SELECT 1 FROM attachment a WHERE a.bbm_receipt_id = i.id AND a.sha256 = :sha256) "
+            "ORDER BY i.id",
+            code=task["reimbursement_code"],
+            sha256=task.pop("sha256"),
+        )
     return task
 
 
 def save_reading(task, rows, elapsed_seconds, usage):
-    """Store what the OCR read for a claimed file (rows from receipt_records.reading_rows) and mark it done, add the
-    tokens it used to its process, and finish the process when nothing of it is left. All or nothing; returns False
-    (and stores nothing) when the file is no longer this attempt's (requeued as stale, or its revision deleted)."""
+    """Store what the OCR read for a claimed file (rows from receipt_records.reading_rows) and mark it done, store the
+    reports claiming the same receipt by what it read, add the tokens it used to its process, and finish the process
+    when nothing of it is left. All or nothing; returns False
+    (and stores nothing) when the file is no longer this attempt's (requeued as stale, or its report deleted)."""
     with get_connection() as conn:
         conn.run("START TRANSACTION")
         try:
@@ -193,7 +184,9 @@ def save_reading(task, rows, elapsed_seconds, usage):
             if not updated:
                 conn.run("ROLLBACK")
                 return False
-            line_ids = OCR_LINE_WRITERS[task["reimbursement_type"]](conn, task["id"], rows["lines"])
+            line_ids = _insert_bbm_lines(conn, task["id"], rows["lines"])
+            # The numbers it read may be another report's receipt (reimbursement_repository.store_same_receipt)
+            conn.run("SELECT store_receipt_matches(ARRAY[CAST(:code AS varchar)])", code=task["reimbursement_code"])
             for difference in rows["differences"]:
                 conn.run(
                     "INSERT INTO ocr_difference (ocr_reimbursement_id, ocr_item_id, bbm_receipt_id, field_name, "
@@ -281,9 +274,3 @@ def _insert_bbm_lines(conn, result_id, lines):
         )
         ids.append(line_id)
     return ids
-
-
-# reimbursement_type -> where the lines the OCR read are stored
-OCR_LINE_WRITERS = {
-    "bbm": _insert_bbm_lines,
-}

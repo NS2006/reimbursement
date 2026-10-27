@@ -7,11 +7,13 @@ Run from the repository root (it keeps running until Ctrl+C):
     py -m backend.jobs.bbm_ocr.worker                  read the queued files, then wait for new ones
     py -m backend.jobs.bbm_ocr.worker --once           read what is queued now, then stop
     py -m backend.jobs.bbm_ocr.worker --retry-failed   queue the failed files again first
+    py -m backend.jobs.bbm_ocr.worker --no-fuel-prices leave the fuel price refreshes to their own worker
 
 For each file: take it from the file storage (services/file_storage.py; the API stored it when the report arrived),
-read it with Claude Haiku (receipt_ocr_haiku.py) in a folder of its own, compare it with the submitted items
-(receipt_validation.py; the file as a whole against the grand total) and store the reading, the decision and the
-differences (receipt_records.py, ocr_repository).
+read it with Claude Haiku (receipt_ocr_haiku.py) in a folder of its own, compare it with the submitted items it is
+attached to (receipt_validation.py, the fuel types by product_labels.py; a report's only file as a whole against the
+grand total) and store the reading, the decision and the differences (receipt_records.py, ocr_repository). A file
+attached to several items of a report (the same file sent with each) is read once.
 
 A file that could not be read goes back to the queue, behind the files not tried yet, up to MAX_ATTEMPTS times; one
 that can never be read (missing from the storage, a PDF Claude cannot take) fails at once. When Claude itself
@@ -20,6 +22,10 @@ waits, longer each time, and fails the file only after MAX_SERVICE_ATTEMPTS. A f
 who can queue it again there ("Retry OCR": POST /api/reimbursements/<code>/ocr/retry, or "Retry OCR on all" on the
 list: POST /api/reimbursements/ocr/retry).
 Several workers can run at once: they never take the same file.
+
+Before its next file, the worker runs a queued fuel price refresh, if any (backend/jobs/fuel_price/worker.py; the
+website's button and a new batch of reports queue one): it takes a few minutes, and someone may be waiting for it.
+With --no-fuel-prices it doesn't: the fuel price worker runs them (py -m backend.jobs.fuel_price.worker).
 """
 
 import argparse
@@ -30,10 +36,12 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from backend.jobs.bbm_ocr.product_labels import matches_fuel_type
 from backend.jobs.bbm_ocr.receipt_config import SCHEMA_PATH
 from backend.jobs.bbm_ocr.receipt_ocr_haiku import ClaudeInterrupted, ClaudeUnavailable, extract_receipts
 from backend.jobs.bbm_ocr.receipt_records import reading_rows, submitted_receipts
 from backend.jobs.bbm_ocr.receipt_validation import validate_receipts
+from backend.jobs.fuel_price import worker as fuel_price_worker
 from backend.repositories import ocr_repository
 from backend.services import file_storage
 from backend.services.file_download import EXTENSIONS
@@ -53,7 +61,7 @@ def read_one(task, reader=extract_receipts):
     again later), "failed", "unavailable" (Claude or the storage is down: wait before the next file) or "dropped" (the
     file was no longer this worker's when the reading was ready). reader is how the file is read (a fake one in
     tests)."""
-    label = f"{task['reimbursement_code']} r{task['revision_no']} {task['name']}"
+    label = f"{task['reimbursement_code']} {task['name']}"
     try:
         data = file_storage.read(task["storage_path"])
     except file_storage.StorageError as error:
@@ -83,9 +91,11 @@ def read_one(task, reader=extract_receipts):
     receipts = result.get("receipts")
     if not isinstance(receipts, list) or not all(isinstance(receipt, dict) for receipt in receipts):
         return _fail(task, label, "The OCR answer has no list of receipts.")
-    # The grand total is what was paid for the whole revision: it can be checked against one file only.
+    # The grand total is what was paid for the whole report: it can be checked against its only file only (every item
+    # is attached to it then).
     grand_total = task["grand_total"] if task["file_count"] == 1 else None
-    validation = validate_receipts(submitted_receipts(task["items"]), receipts, grand_total=grand_total)
+    validation = validate_receipts(submitted_receipts(task["items"]), receipts, grand_total=grand_total,
+                                   names=matches_fuel_type)
     rows = reading_rows(receipts, validation, task["items"])
     if not ocr_repository.save_reading(task, rows, usage["elapsed_seconds"], _tokens(usage)):
         log.warning("%s: read, but no longer this worker's (queued again or deleted); the reading is dropped", label)
@@ -115,7 +125,7 @@ def _tokens(usage):
     }
 
 
-def run(once=False, reader=extract_receipts):
+def run(once=False, reader=extract_receipts, fuel_prices=True):
     """Read queued files, oldest first, until stopped; with once, stop when nothing is queued (or Claude or the
     storage is down). When the database can't be used (it restarted, the network dropped), wait a little, longer
     each time, and go on (with once: stop with the error); a file being read then is queued again after
@@ -124,7 +134,7 @@ def run(once=False, reader=extract_receipts):
     database_pause = 0
     while True:
         try:
-            outcome = _next_file(once, reader)
+            outcome = _next_file(once, reader, fuel_prices)
         except Exception as error:
             if once:
                 raise
@@ -151,9 +161,13 @@ def run(once=False, reader=extract_receipts):
         time.sleep(pause)
 
 
-def _next_file(once, reader):
-    """Queue stale files again, then take the next file and read it: its outcome (see read_one), or "nothing" when
-    none is queued. A database error is raised (run waits and tries again)."""
+def _next_file(once, reader, fuel_prices=True):
+    """Run a queued fuel price refresh (its outcome: "done", "failed" or "unavailable"; not with fuel_prices False);
+    or else queue stale files again, then take the next file and read it: its outcome (see read_one), or "nothing"
+    when none is queued. A database error is raised (run waits and tries again)."""
+    refresh = fuel_price_worker.run_next() if fuel_prices else "nothing"
+    if refresh != "nothing":
+        return refresh
     stale = ocr_repository.requeue_stale(STALE_MINUTES)
     if stale:
         log.warning("%d file(s) were running for over %d minutes; queued again", stale, STALE_MINUTES)
@@ -179,6 +193,8 @@ def main():
     parser = argparse.ArgumentParser(description="Read the receipt files queued for the OCR.")
     parser.add_argument("--once", action="store_true", help="read what is queued now, then stop")
     parser.add_argument("--retry-failed", action="store_true", help="queue the failed files again first")
+    parser.add_argument("--no-fuel-prices", action="store_true",
+                        help="don't run the fuel price refreshes (py -m backend.jobs.fuel_price.worker does)")
     args = parser.parse_args()
 
     # The DB_* settings (and GCS_BUCKET) live in the .env file in the repo root.
@@ -186,8 +202,10 @@ def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     if args.retry_failed:
         log.info("Queued %d failed file(s) again.", ocr_repository.requeue_failed())
+    if not args.no_fuel_prices:
+        fuel_price_worker.add_products_if_none()  # a first deploy: the fuels the fuel price page lists
     try:
-        run(once=args.once)
+        run(once=args.once, fuel_prices=not args.no_fuel_prices)
     except KeyboardInterrupt:
         log.info("Stopped.")
 

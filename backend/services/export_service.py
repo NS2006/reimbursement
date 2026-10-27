@@ -16,18 +16,13 @@ PERIOD = re.compile(r"(\d{4})-(0[1-9]|1[0-2])")
 MONTHS = ("January", "February", "March", "April", "May", "June",
           "July", "August", "September", "October", "November", "December")
 
-# reimbursement_type -> how its workbook is built
-WORKBOOK_BUILDERS = {
-    "bbm": build_bbm_workbook,
-}
-
 
 def export_reimbursements():
-    """POST /api/reimbursements/export?type=bbm: the reports of a list as the reviewer has it, as an Excel workbook:
-    every page, sorted as on screen.
+    """POST /api/reimbursements/export: the reports of a list as the reviewer has it, as an Excel workbook: every
+    page, sorted as on screen.
 
     Body: the list's filter (see report_filter) and where the file links to:
-          {"period": "2026-10", "status": "approved", "by": "proceed", "q": "RB-0", "sort": "-total", "tz": 420,
+          {"period": "2026-10", "status": "approved", "by": "proceed", "q": "EREP_100", "sort": "-total", "tz": 420,
            "website_url": "https://reimbursement.example.com"}
       period, status, by, q, sort  the list: the month, status filter, search and sort on screen (also the file's
                                    title, name and the line under each sheet's title)
@@ -38,16 +33,11 @@ def export_reimbursements():
     At most MAX_EXPORT_REPORTS reports (400 with more: choose a month or a status). The X-Export-Count header says
     how many reports the file holds.
     """
-    reimbursement_type = request.args.get("type") or "bbm"
-    build = WORKBOOK_BUILDERS.get(reimbursement_type)
-    if build is None:
-        return _error("invalid_type", f"type must be one of: {', '.join(WORKBOOK_BUILDERS)}")
-
     body = request.get_json(silent=True)
     if not isinstance(body, dict):
         return _error("invalid_body", 'Send a JSON object like {"period": "2026-10", "status": "approved"}.')
     try:
-        found = report_filter.parse({**body, "type": reimbursement_type}, WORKBOOK_BUILDERS)
+        found = report_filter.parse(body)
     except report_filter.FilterError as error:
         return _error(error.error, str(error))
     website_url = body.get("website_url")
@@ -62,12 +52,13 @@ def export_reimbursements():
     label = "All reports" if status == "all" else STATUSES[status][0]
     if by:
         label = f"{label} · {parts[by]}"
-    reports = reimbursement_repository.find_current_revisions(reimbursement_type, codes) if codes else []
+    reports = reimbursement_repository.find_reports(codes) if codes else []
+    claimed = reimbursement_repository.find_claimed(codes)
     for report in reports:
-        revision = report["revision"]
-        report["ocr_status"] = add_photo_status(revision["photos"])
-        report["decision"] = current_decision(revision["decisions"])
-        report["review_status"] = review_status(report["ocr_status"], report["decision"])
+        report["ocr_status"] = add_photo_status(report["photos"])
+        report["decision"] = current_decision(report["decisions"])
+        report["double_claim"] = report["reimbursement_code"] in claimed
+        report["review_status"] = review_status(report["ocr_status"], report["decision"], report["double_claim"])
     if status != "all":
         # The list's status was worked out in SQL; a report whose status changed in the meantime is left out.
         reports = [report for report in reports
@@ -88,7 +79,7 @@ def export_reimbursements():
         "zone": zone,
         "website_url": website_url,
     }
-    workbook = build(reports, info)
+    workbook = build_bbm_workbook(reports, info)
     output = BytesIO()
     workbook.save(output)
     output.seek(0)
@@ -99,11 +90,13 @@ def export_reimbursements():
 
 def _part(report):
     """The part of its status a report is in: how an approved one was approved (matched / proceed / reviewer), why
-    one needs review (failed: the OCR couldn't read the file; differences: the OCR read it and found some). As the
-    website's needsReviewReason and approvedBy."""
+    one needs review (duplicate: an earlier report claimed its receipt; failed: the OCR couldn't read the file;
+    differences: the OCR read it and found some). As the website's needsReviewReason and approvedBy."""
     if report["review_status"] == "approved":
         return "reviewer" if report["decision"] else report["ocr_status"]
     if report["review_status"] == "needs_review":
+        if report["double_claim"]:
+            return "duplicate"
         return "failed" if report["ocr_status"] == "failed" else "differences"
     return None
 

@@ -6,7 +6,7 @@ from backend.services.reimbursement_service import report_detail
 
 REASON_MAX_LENGTH = 1000
 
-# approved / rejected decide the current revision; reopened takes the decision in force back.
+# approved / rejected decide the report; reopened takes the decision in force back.
 DECISIONS = ("approved", "rejected", "reopened")
 VERBS = {"approved": "approved", "rejected": "rejected", "reopened": "took back the decision on"}
 
@@ -15,14 +15,13 @@ VERBS = {"approved": "approved", "rejected": "rejected", "reopened": "took back 
 
 
 def add_decision(code):
-    """POST /api/reimbursements/<code>/decisions: a reviewer approves or rejects the current revision of a report, or
-    takes the decision back.
+    """POST /api/reimbursements/<code>/decisions: a reviewer approves or rejects a report, or takes the decision
+    back.
 
-    Body: {"user_email": ..., "revision_no": 2, "decision": "rejected", "reason": "...", "based_on": 41}
-      revision_no  the revision the reviewer looked at; it must still be the current one
+    Body: {"user_email": ..., "decision": "rejected", "reason": "...", "based_on": 41}
       decision     approved / rejected / reopened
       reason       why; required to reject, optional otherwise
-      based_on     the id of the newest decision the reviewer saw on that revision (null when it had none), so two
+      based_on     the id of the newest decision the reviewer saw on the report (null when it had none), so two
                    reviewers deciding at the same time do not overwrite each other: the second one gets 409 and the
                    decision that was made in the meantime
 
@@ -39,9 +38,6 @@ def add_decision(code):
     decision = body.get("decision")
     if decision not in DECISIONS:
         return _error(400, "invalid_decision", f"decision must be one of: {', '.join(DECISIONS)}.")
-    revision_no = body.get("revision_no")
-    if not isinstance(revision_no, int) or isinstance(revision_no, bool) or revision_no < 1:
-        return _error(400, "invalid_revision_no", "revision_no must be the number of the revision you looked at.")
     based_on = body.get("based_on")
     if based_on is not None and (not isinstance(based_on, int) or isinstance(based_on, bool)):
         return _error(400, "invalid_based_on", "based_on must be the id of the newest decision you saw, or null.")
@@ -55,12 +51,9 @@ def add_decision(code):
     if reason and len(reason) > REASON_MAX_LENGTH:
         return _error(400, "invalid_reason", f"The reason can be at most {REASON_MAX_LENGTH} characters.")
 
-    outcome, detail = review_repository.add(code, revision_no, decision, reason or None, user["email"], based_on)
+    outcome, detail = review_repository.add(code, decision, reason or None, user["email"], based_on)
     if outcome == "not_found":
         return _error(404, "not_found", f"No reimbursement with code {code}.")
-    if outcome == "not_current":
-        return _error(409, "revision_changed",
-                      f"Revision {detail} of {code} arrived in the meantime. Check it before deciding.")
     if outcome == "changed":
         message = (f"{detail['user_name']} {VERBS[detail['decision']]} {code} in the meantime."
                    if detail else f"The decision on {code} was taken back in the meantime.")

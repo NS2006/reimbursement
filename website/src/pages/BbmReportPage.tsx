@@ -9,8 +9,6 @@ import { BlueLink } from "../components/blue/Link";
 import { BlueModal } from "../components/blue/Modal";
 import { BlueSpinner } from "../components/blue/Spinner";
 import { BlueTable } from "../components/blue/Table";
-import { BlueTabs } from "../components/blue/Tabs";
-import { BlueTag } from "../components/blue/Tag";
 import { BlueTextarea } from "../components/blue/Textarea";
 import type { BlueTableColumn, BlueTableFooterRow } from "../components/blue/types";
 import { CommentThread } from "../components/CommentThread";
@@ -27,13 +25,19 @@ import {
   type DifferenceSide,
   type DifferenceView,
   type FileTotals,
+  FUEL_PRICE_TOLERANCE,
+  type FuelPriceCell,
   type HistoryEvent,
+  type ItemFuelPriceRow,
   type ReviewDifference,
-  type RevisionChange,
+  type SameReceiptRow,
+  SAME_RECEIPT_ID,
+  doubleClaims,
 } from "../controllers/BbmReportController";
-import type { BbmItem, BbmOcrLine, BbmPhoto, BbmRevision, OcrStatus, ReviewDecision } from "../types/reimbursement";
+import { FUEL_PRICES_PATH } from "../controllers/FuelPriceController";
+import type { BbmItem, BbmOcrLine, BbmPhoto, BbmReimbursement, OcrStatus, ReviewDecision } from "../types/reimbursement";
 import type { User } from "../types/user";
-import { fieldLabel, formatField } from "../utils/bbmFields";
+import { fieldLabel, formatField, priceToleranceText } from "../utils/bbmFields";
 import {
   EMPTY,
   NULL_VALUE,
@@ -53,8 +57,9 @@ interface BbmReportPageProps {
   user: User;
 }
 
-// One BBM report, laid out for reviewing it: what the OCR found on top, the receipt file next to it (in view
-// while scrolling), then the submitted items and the OCR reading in the same columns, the history and the comments.
+// One BBM report, laid out for reviewing it: what the OCR found on top, the receipt files next to it (in view
+// while scrolling), then the submitted items and the OCR reading of each file in the same columns, the history and
+// the comments.
 // The decision (approve / reject) stays in view at the bottom; after it, the next report of the list opens.
 export default function BbmReportPage({ code, user }: BbmReportPageProps) {
   const controller = useBbmReportController(code, user);
@@ -113,7 +118,7 @@ function PagerLink({ path, label, icon }: { path: string | null; label: string; 
 }
 
 function ReportContent({ code, controller }: { code: string; controller: BbmReportController }) {
-  const { state, refreshing, reload, loadedAt, report, isBbm, revision, review, replacedBy } = controller;
+  const { state, refreshing, reload, loadedAt, report, review } = controller;
 
   if (state.status === "loading") {
     return (
@@ -148,20 +153,9 @@ function ReportContent({ code, controller }: { code: string; controller: BbmRepo
     );
   }
 
-  if (!report || !revision || !review || loadedAt === null) return null;
+  if (!report || !review || loadedAt === null) return null;
 
-  if (!isBbm) {
-    return (
-      <BlueCard>
-        <BlueEmptyState title={t("report:notBbm.title", { code })} action={<BackToList controller={controller} />}>
-          {t("report:notBbm.text", { type: report.reimbursement_type })}
-        </BlueEmptyState>
-      </BlueCard>
-    );
-  }
-
-  const manyRevisions = report.revisions.length > 1;
-  const manyPhotos = revision.photos.length > 1;
+  const manyPhotos = report.photos.length > 1;
 
   return (
     <>
@@ -169,19 +163,11 @@ function ReportContent({ code, controller }: { code: string; controller: BbmRepo
         <div>
           <div className="bbm-report__title">
             <h1 className="page-title">{report.reimbursement_code}</h1>
-            <ReviewStatusBadge status={revision.review_status} />
-            {controller.approvedBefore !== null ? (
-              <BlueTag
-                variant="warning"
-                title={t("report:header.revisedAfterApprovalTitle", { no: controller.approvedBefore })}
-              >
-                {t("report:header.revisedAfterApproval")}
-              </BlueTag>
-            ) : null}
+            <ReviewStatusBadge status={report.review_status} />
           </div>
           <p className="page-subtitle">
             {report.employee_name} · {report.employee_no} ·{" "}
-            {t("report:header.received", { month: formatMonth(revision.received_at) })}
+            {t("report:header.received", { month: formatMonth(report.received_at) })}
           </p>
         </div>
         <div className="bbm-report__sync">
@@ -194,52 +180,25 @@ function ReportContent({ code, controller }: { code: string; controller: BbmRepo
         </div>
       </header>
 
-      {manyRevisions ? (
-        <BlueTabs
-          ariaLabel={t("report:revision.tabs")}
-          controls="bbm-report-revision"
-          activeKey={String(revision.revision_no)}
-          onChange={(key) => controller.showRevision(Number(key))}
-          items={report.revisions.map((candidate, index) => ({
-            key: String(candidate.revision_no),
-            label: t(index === 0 ? "report:revision.tabCurrent" : "report:revision.tab", {
-              no: candidate.revision_no,
-              month: formatMonth(candidate.received_at),
-            }),
-          }))}
-        />
-      ) : null}
-
-      {replacedBy ? (
-        <BlueAlert variant="info" title={t("report:revision.oldTitle", { no: revision.revision_no })}>
-          {t("report:revision.oldText", { no: replacedBy.revision_no, month: formatMonth(replacedBy.received_at) })}
-        </BlueAlert>
-      ) : null}
-      <PreviousRejection controller={controller} />
-      <RevisionChanges controller={controller} />
-
-      <div
-        id="bbm-report-revision"
-        className="bbm-report__grid"
-        role={manyRevisions ? "tabpanel" : undefined}
-        aria-label={manyRevisions ? t("report:revision.label", { no: revision.revision_no }) : undefined}
-      >
-        <ReviewSummary controller={controller} revision={revision} />
+      <div className="bbm-report__grid">
+        <ReviewSummary controller={controller} report={report} />
 
         <aside className="bbm-report__photos" aria-label={manyPhotos ? t("report:files.many") : t("report:files.one")}>
           <BlueCard
-            title={manyPhotos ? t("report:files.manyCount", { number: revision.photos.length }) : t("report:files.one")}
+            title={manyPhotos ? t("report:files.manyCount", { number: report.photos.length }) : t("report:files.one")}
           >
-            <FileViewer key={revision.id} label={t("report:receipt")} files={controller.files} />
+            <FileViewer key={report.reimbursement_code} label={t("report:receipt")} files={controller.files} />
           </BlueCard>
         </aside>
 
         <div className="bbm-report__main">
-          <SubmittedItems controller={controller} items={review.items} />
-          {revision.photos.map((photo) =>
+          <SameReceiptCard controller={controller} />
+          <SubmittedItems controller={controller} items={review.items} manyPhotos={manyPhotos} />
+          {report.photos.map((photo) =>
             photo.ocr ? <OcrReading key={photo.id} controller={controller} photo={photo} manyPhotos={manyPhotos} /> : null,
           )}
           <AllFilesTotal controller={controller} />
+          <FuelPrices controller={controller} />
           <History controller={controller} />
           <Comments controller={controller} />
         </div>
@@ -287,7 +246,7 @@ function decisionDetail(decision: ReviewDecision): ReactNode {
   );
 }
 
-type DecisionTone = "attention" | "processing" | "approved" | "rejected" | "old";
+type DecisionTone = "attention" | "processing" | "approved" | "rejected";
 
 /** A link that looks like a button. */
 function ButtonLink({ path, variant, children }: { path: string; variant: "primary" | "secondary"; children: ReactNode }) {
@@ -299,11 +258,12 @@ function ButtonLink({ path, variant, children }: { path: string; variant: "prima
 }
 
 function DecisionBar({ controller }: { controller: BbmReportController }) {
-  const { decision, review, revision, navigation, userEmail } = controller;
-  const { panel, deciding, advance, previousRejection } = decision;
-  if (!panel || !review || !revision) return null;
+  const { decision, review, report, navigation, userEmail } = controller;
+  const { panel, deciding, advance } = decision;
+  if (!panel || !review || !report) return null;
   const busy = deciding !== null;
   const count = review.differences.length;
+  const earlier = doubleClaims(report);
 
   const rejectButton = (label: string) => (
     <BlueButton variant="secondary" disabled={busy} onClick={decision.openReject}>
@@ -328,32 +288,19 @@ function DecisionBar({ controller }: { controller: BbmReportController }) {
   let detail: ReactNode;
   let actions: ReactNode;
   switch (panel.kind) {
-    case "old": {
-      // How this revision ended, if a reviewer decided it; deciding is only done on the current one
-      const made = revision.decision;
-      tone = made ? made.decision : "old";
-      icon = made?.decision === "approved" ? "matched" : made ? "rejected" : "processing";
-      title = made
-        ? t("report:decision.old.decided", { no: revision.revision_no, decided: decidedText(made, userEmail) })
-        : t("report:decision.old.title", { no: revision.revision_no });
-      detail = made ? decisionDetail(made) : t("report:decision.old.text", { no: panel.currentNo });
-      actions = (
-        <BlueButton variant="primary" onClick={decision.showCurrent}>
-          {t("report:decision.old.show", { no: panel.currentNo })}
-        </BlueButton>
-      );
-      break;
-    }
     case "open":
       tone = panel.status === "processing" ? "processing" : "attention";
       icon = panel.status;
       title = panel.status === "processing" ? t("report:decision.open.processingTitle") : t("report:decision.open.title");
-      detail = previousRejection
-        ? t("report:decision.open.previousRejected", { no: previousRejection.revisionNo })
-        : panel.status === "processing"
+      detail =
+        earlier.length > 0
+          ? earlier.length === 1
+            ? t("report:decision.open.doubleClaim", { code: earlier[0].reimbursement_code })
+            : t("report:decision.open.doubleClaimMany", { count: earlier.length })
+          : panel.status === "processing"
           ? t("report:decision.open.processing")
-          : revision.ocr_status === "failed"
-            ? revision.photos.some((photo) => photo.ocr_status === "failed" && photo.ocr_error_reason === "file_missing")
+          : report.ocr_status === "failed"
+            ? report.photos.some((photo) => photo.ocr_status === "failed" && photo.ocr_error_reason === "file_missing")
               ? t("report:decision.open.fileMissing")
               : t("report:decision.open.failed")
             : count > 0
@@ -442,8 +389,8 @@ function DecisionBar({ controller }: { controller: BbmReportController }) {
 
 /** Rejecting needs a reason: ready-made ones come from the differences the OCR found. */
 function RejectDialog({ controller }: { controller: BbmReportController }) {
-  const { rejectDialog: dialog, report, revision } = controller;
-  if (!report || !revision) return null;
+  const { rejectDialog: dialog, report } = controller;
+  if (!report) return null;
   const length = dialog.reason.trim().length;
 
   function addSuggestion(suggestion: string) {
@@ -475,7 +422,7 @@ function RejectDialog({ controller }: { controller: BbmReportController }) {
       }
     >
       <p className="bbm-reject__text">
-        {t("report:rejectDialog.text", { name: report.employee_name, no: revision.revision_no + 1 })}
+        {t("report:rejectDialog.text", { name: report.employee_name })}
       </p>
       <BlueTextarea
         id="bbm-reject-reason"
@@ -513,31 +460,8 @@ function RejectDialog({ controller }: { controller: BbmReportController }) {
   );
 }
 
-/** The revision before was rejected: say why, so the reviewer can check that this one fixes it. */
-function PreviousRejection({ controller }: { controller: BbmReportController }) {
-  const { decision, revision, userEmail } = controller;
-  const previous = decision.previousRejection;
-  if (!previous || !revision) return null;
-  const { revisionNo, decision: made } = previous;
-  // The reason usually ends with its own full stop
-  const reason = made.reason ?? "";
-  const end = /[.!?]$/.test(reason) ? "" : ".";
-  const date = formatDateTime(made.decided_at);
-  return (
-    <BlueAlert variant="warning" title={t("report:previousRejection.title", { no: revisionNo })}>
-      {isMine(made, userEmail)
-        ? t("report:previousRejection.byYou", { date, reason })
-        : t("report:previousRejection.by", { name: made.user_name, date, reason })}
-      {end}{" "}
-      {revision.decision || revision.review_status === "approved"
-        ? null
-        : t("report:previousRejection.check", { no: revision.revision_no })}
-    </BlueAlert>
-  );
-}
-
 // ---------------------------------------------------------------------------
-// History of the report: revisions received, OCR readings, decisions
+// History of the report: received, OCR readings, decisions
 // ---------------------------------------------------------------------------
 
 type HistoryTone = "neutral" | "attention" | "info" | "approved" | "rejected";
@@ -545,14 +469,7 @@ type HistoryTone = "neutral" | "attention" | "info" | "approved" | "rejected";
 function historyLine(event: HistoryEvent, userEmail: string): { tone: HistoryTone; text: string; reason: string | null } {
   switch (event.kind) {
     case "received":
-      return {
-        tone: "neutral",
-        text:
-          event.revisionNo === 1
-            ? t("report:history.received")
-            : t("report:history.sentAgain", { no: event.revisionNo }),
-        reason: null,
-      };
+      return { tone: "neutral", text: t("report:history.received"), reason: null };
     case "read": {
       const { label, hint } = OCR_STATUSES[event.status];
       const tone =
@@ -572,14 +489,13 @@ function historyLine(event: HistoryEvent, userEmail: string): { tone: HistoryTon
 function History({ controller }: { controller: BbmReportController }) {
   const { history, report, userEmail } = controller;
   if (!report) return null;
-  const manyRevisions = report.revisions.length > 1;
 
   return (
     <BlueCard header={<CardHeader title={t("report:history.title")} meta={t("report:history.newestFirst")} />}>
       <ol className="bbm-history">
         {history.map((event) => {
           const { tone, text, reason } = historyLine(event, userEmail);
-          const key = `${event.kind}-${event.revisionNo}-${event.kind === "decision" ? event.decision.id : ""}`;
+          const key = `${event.kind}-${event.kind === "decision" ? event.decision.id : ""}`;
           return (
             <li key={key} className={`bbm-history__event bbm-history__event--${tone}`}>
               <span className="bbm-history__dot" aria-hidden="true" />
@@ -588,7 +504,6 @@ function History({ controller }: { controller: BbmReportController }) {
                 <span className="bbm-history__meta">
                   {/* Received: the month only (the other system sends reports in batches, see the BBM list) */}
                   {event.kind === "received" ? formatMonth(event.at) : formatDateTime(event.at)}
-                  {manyRevisions ? ` · ${t("report:revision.label", { no: event.revisionNo })}` : ""}
                 </span>
                 {reason ? <q className="bbm-history__reason">{reason}</q> : null}
               </div>
@@ -601,82 +516,6 @@ function History({ controller }: { controller: BbmReportController }) {
 }
 
 // ---------------------------------------------------------------------------
-// What changed since the revision before
-// ---------------------------------------------------------------------------
-
-/** A change as a row of the table: what changed, its value in the revision before and in the shown one. */
-function changeRow(change: RevisionChange): { label: string; before: string; after: string } {
-  switch (change.kind) {
-    case "value":
-      return {
-        label: t("report:difference.fieldOf", { field: fieldLabel(change.field), item: change.itemId }),
-        before: formatField(change.field, change.before),
-        after: formatField(change.field, change.after),
-      };
-    case "added":
-      return {
-        label: t("report:changes.item", { id: change.itemId }),
-        before: EMPTY,
-        after: t("report:changes.added", { amount: formatMoney(change.amount) }),
-      };
-    case "removed":
-      return {
-        label: t("report:changes.item", { id: change.itemId }),
-        before: formatMoney(change.amount),
-        after: t("report:changes.removed"),
-      };
-    case "grand_total":
-      return { label: fieldLabel("grand_total"), before: formatMoney(change.before), after: formatMoney(change.after) };
-    case "photos":
-      return { label: t("report:files.many"), before: change.before.join(", "), after: change.after.join(", ") };
-  }
-}
-
-/** What changed since the revision before (revision 3 is compared with revision 2): its value then and now. */
-function RevisionChanges({ controller }: { controller: BbmReportController }) {
-  const { changes, previousRevision, revision } = controller;
-  if (!changes || !previousRevision || !revision) return null;
-  const title = t("report:changes.title", { no: previousRevision.revision_no });
-  return (
-    <section className="bbm-report__changes" aria-label={title}>
-      <span className="bbm-report__changes-title">{title}</span>
-      {changes.length === 0 ? (
-        <span className="bbm-report__muted">{t("report:changes.none")}</span>
-      ) : (
-        <div className="bbm-report__changes-scroll">
-          <table className="bbm-report__changes-table">
-            <thead>
-              <tr>
-                <th scope="col">
-                  <span className="blue-visually-hidden">{t("report:changes.what")}</span>
-                </th>
-                <th scope="col">{t("report:revision.label", { no: previousRevision.revision_no })}</th>
-                <td className="bbm-report__changes-arrow" aria-hidden="true">
-                  →
-                </td>
-                <th scope="col">{t("report:revision.label", { no: revision.revision_no })}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {changes.map(changeRow).map((row) => (
-                <tr key={row.label}>
-                  <th scope="row">{row.label}</th>
-                  <td className="bbm-report__changes-before">{row.before}</td>
-                  <td className="bbm-report__changes-arrow" aria-hidden="true">
-                    →
-                  </td>
-                  <td className="bbm-report__changes-after">{row.after}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </section>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // The review summary: what the OCR found and what to check
 // ---------------------------------------------------------------------------
 
@@ -685,7 +524,7 @@ function decidedSummary(): string {
   return t("report:summary.decided");
 }
 
-/** The headline and the line under it, for the status of the revision (decided: a reviewer already looked at it). */
+/** The headline and the line under it, for the status of the report (decided: a reviewer already looked at it). */
 function summaryText(status: OcrStatus, decided: boolean, differences: number, photosRead: number, photos: number) {
   switch (status) {
     case "needs_review":
@@ -724,11 +563,11 @@ function summaryText(status: OcrStatus, decided: boolean, differences: number, p
 
 /** What the OCR found, in the order a reviewer needs it: what is wrong, then each difference with both values side
  *  by side and which one the other numbers on the receipt support. The totals are compared under the tables. */
-function ReviewSummary({ controller, revision }: { controller: BbmReportController; revision: BbmRevision }) {
+function ReviewSummary({ controller, report }: { controller: BbmReportController; report: BbmReimbursement }) {
   const { review } = controller;
   if (!review) return null;
-  const status = revision.ocr_status;
-  const decided = revision.decision !== null;
+  const status = report.ocr_status;
+  const decided = report.decision !== null;
   const { fieldViews } = review;
   const single = fieldViews.length === 1 ? fieldViews[0] : null;
   // One thing to check: name it. Several: count them (summaryText).
@@ -738,27 +577,40 @@ function ReviewSummary({ controller, revision }: { controller: BbmReportControll
         ? { title: single.title, summary: single.summary }
         : review.totalHeadline
       : null;
-  const { title, text } = subject
-    ? { title: subject.title, text: decided ? decidedSummary() : subject.summary }
-    : summaryText(status, decided, fieldViews.length, review.photosRead, revision.photos.length);
+  // A receipt an earlier report claimed comes first, whatever the OCR found (not once decided: the card shows it then)
+  const doubleClaim = controller.sameReceipt.doubleClaim;
+  const { title, text } = doubleClaim
+    ? doubleClaim
+    : subject
+      ? { title: subject.title, text: decided ? decidedSummary() : subject.summary }
+      : summaryText(status, decided, fieldViews.length, review.photosRead, report.photos.length);
+  const tone = decided ? "decided" : doubleClaim ? "needs_review" : status;
 
   return (
-    <section
-      className={`bbm-report__summary bbm-report__summary--${decided ? "decided" : status}`}
-      aria-labelledby="bbm-report-summary-title"
-    >
+    <section className={`bbm-report__summary bbm-report__summary--${tone}`} aria-labelledby="bbm-report-summary-title">
       <div className="bbm-report__summary-head">
         <span className="bbm-report__summary-icon">
-          <Icon name={status} />
+          <Icon name={doubleClaim ? "needs_review" : status} />
         </span>
         <div>
           <h2 id="bbm-report-summary-title" className="bbm-report__summary-title">
             {title}
           </h2>
           <p className="bbm-report__summary-text">{text}</p>
+          {doubleClaim ? (
+            <BlueButton
+              className="bbm-report__summary-action"
+              variant="secondary"
+              size="sm"
+              onClick={controller.sameReceipt.show}
+            >
+              {t("report:sameReceipt.compare")}
+              <Icon name="down" />
+            </BlueButton>
+          ) : null}
           {review.failed.map((file) => (
             <p key={file.name} className="bbm-report__summary-reason">
-              {revision.photos.length > 1 ? `${file.name}: ` : ""}
+              {report.photos.length > 1 ? `${file.name}: ` : ""}
               {t(`report:failure.${file.reason}.text`)} ({t("report:summary.tried", { count: file.attempts })})
               <span className="bbm-report__summary-todo">{t(`report:failure.${file.reason}.todo`)}</span>
             </p>
@@ -778,14 +630,17 @@ function ReviewSummary({ controller, revision }: { controller: BbmReportControll
         </div>
       </div>
 
+      {fieldViews.length > 0 && doubleClaim ? (
+        <p className="bbm-report__summary-subtitle">{t("report:sameReceipt.ocrFound")}</p>
+      ) : null}
       {fieldViews.length > 0 ? (
         <ul className="bbm-report__differences" aria-label={t("report:summary.differences")}>
           {fieldViews.map((view) => (
             <DifferenceRow
               key={view.difference.id}
               view={view}
-              // The headline already says it when this is the only difference
-              hint={single && view.hint === single.summary ? null : view.hint}
+              // The headline already says it when this is the only difference (not once decided: it says that then)
+              hint={single && !decided && view.hint === single.summary ? null : view.hint}
               onShow={() => controller.showDifference(view.difference)}
             />
           ))}
@@ -811,7 +666,11 @@ function DifferenceRow({ view, hint, onShow }: { view: DifferenceView; hint: str
         ) : null}
       </div>
       <div className="bbm-difference__sides">
-        <SideTile caption={t("report:difference.submitted")} side={view.submitted} source="submitted" />
+        <SideTile
+          caption={view.submittedCaption ?? t("report:difference.submitted")}
+          side={view.submitted}
+          source="submitted"
+        />
         <SideTile caption={t("report:difference.onReceipt")} side={view.receipt} source="receipt" />
       </div>
       {hint ? <p className="bbm-difference__hint">{hint}</p> : null}
@@ -819,8 +678,9 @@ function DifferenceRow({ view, hint, onShow }: { view: DifferenceView; hint: str
   );
 }
 
-/** One value of a difference. Marked: the characters that differ from the other value. Coloured by what the other
- *  numbers on the receipt say: red when the submitted value doesn't fit them, amber when the OCR misread. */
+/** One value of a difference, and nothing else (why is under both values). Marked: the characters that differ from
+ *  the other value. Coloured by what the other numbers on the receipt say: red when the submitted value doesn't fit
+ *  them, amber when the OCR misread. */
 function SideTile({ caption, side, source }: { caption: string; side: DifferenceSide; source: "submitted" | "receipt" }) {
   return (
     <div className={`bbm-side bbm-side--${side.tone} bbm-side--${source}`}>
@@ -836,12 +696,6 @@ function SideTile({ caption, side, source }: { caption: string; side: Difference
           ),
         )}
       </span>
-      {side.note ? (
-        <span className="bbm-side__note">
-          <Icon name={side.tone === "fits" ? "check" : "cross"} />
-          {side.note}
-        </span>
-      ) : null}
     </div>
   );
 }
@@ -870,6 +724,72 @@ function alignOf(field: string): "right" | undefined {
   return field === "product_name" || field === "date_of_expense" ? undefined : "right";
 }
 
+// ---------------------------------------------------------------------------
+// The same receipt in other reports: what a reviewer compares before deciding a double claim
+// ---------------------------------------------------------------------------
+
+/** Each other report claiming the same receipt: what it is to this one, how it was decided, who sent it and when,
+ *  and what both have. It opens in a new tab, so this report stays where the reviewer left it. */
+function SameReceiptCard({ controller }: { controller: BbmReportController }) {
+  const { rows } = controller.sameReceipt;
+  if (rows.length === 0) return null;
+  return (
+    <div id={SAME_RECEIPT_ID} className="bbm-report__same">
+      <BlueCard
+        className="bbm-report__table-card"
+        header={
+          <CardHeader title={t("report:sameReceipt.card")} count={rows.length} meta={t("report:sameReceipt.cardMeta")} />
+        }
+      >
+        <ul className="bbm-same">
+          {rows.map((row) => (
+            <SameReceiptItem key={row.entry.reimbursement_code} row={row} />
+          ))}
+        </ul>
+      </BlueCard>
+    </div>
+  );
+}
+
+function SameReceiptItem({ row }: { row: SameReceiptRow }) {
+  const { entry } = row;
+  return (
+    <li className={row.problem ? "bbm-same__item bbm-same__item--problem" : "bbm-same__item"}>
+      <div className="bbm-same__head">
+        <span className={row.problem ? "bbm-same__kind bbm-same__kind--problem" : "bbm-same__kind"}>
+          {t(`report:sameReceipt.kind.${entry.kind}`)}
+        </span>
+        <BlueLink
+          className="bbm-same__code"
+          href={row.path}
+          external
+          title={t("report:sameReceipt.open", { code: entry.reimbursement_code })}
+        >
+          {entry.reimbursement_code}
+          <Icon name="external" />
+        </BlueLink>
+        <ReviewStatusBadge status={entry.review_status} />
+        {row.decidedBy ? <span className="bbm-report__muted">{row.decidedBy}</span> : null}
+      </div>
+      <p className="bbm-same__text">{t(`report:sameReceipt.kindText.${entry.kind}`)}</p>
+      {row.reason ? <q className="bbm-same__reason">{row.reason}</q> : null}
+      <ul className="bbm-same__facts">
+        <li className={row.otherEmployee ? "bbm-same__other-employee" : undefined}>
+          {row.otherEmployee
+            ? t("report:sameReceipt.otherEmployee", { name: entry.employee_name, number: entry.employee_no })
+            : t("report:sameReceipt.sameEmployee")}
+        </li>
+        <li>{t("report:sameReceipt.received", { date: formatDateTime(entry.received_at) })}</li>
+        {row.evidence.map((evidence) => (
+          <li key={evidence} className="bbm-same__evidence">
+            {evidence}
+          </li>
+        ))}
+      </ul>
+    </li>
+  );
+}
+
 function CardHeader({ title, count, meta }: { title: string; count?: number; meta?: ReactNode }) {
   return (
     <div className="blue-card__header bbm-report__card-header">
@@ -886,13 +806,31 @@ function differenceIds(differences: ReviewDifference[] | undefined): string | un
   return differences?.map((difference) => difference.id).join(" ");
 }
 
-function SubmittedItems({ controller, items }: { controller: BbmReportController; items: BbmItem[] }) {
-  const { itemDifferences } = controller;
+function SubmittedItems({
+  controller,
+  items,
+  manyPhotos,
+}: {
+  controller: BbmReportController;
+  items: BbmItem[];
+  manyPhotos: boolean;
+}) {
+  const { itemDifferences, review } = controller;
 
-  function itemCell(field: keyof BbmItem & string): BlueTableColumn<BbmItem> {
+  function itemCell(field: Exclude<keyof BbmItem, "id" | "item_id" | "photo_ids" | "fuel_price">): BlueTableColumn<BbmItem> {
+    // The price per liter is not submitted: the amount divided by the volume, compared with the price on the receipt
+    const computed = field === "price_per_liter";
     return {
       key: field,
-      header: fieldLabel(field),
+      header: computed ? (
+        <span className="bbm-report__stack">
+          <span>{fieldLabel(field)}</span>
+          <span className="bbm-report__computed">{t("report:items.computed")}</span>
+        </span>
+      ) : (
+        fieldLabel(field)
+      ),
+      label: computed ? `${fieldLabel(field)} (${t("report:items.computed")})` : undefined,
       align: alignOf(field),
       width: widthOf(field) ?? (field === "kilometer" ? WIDTHS.extra : undefined),
       nowrap: field !== "product_name",
@@ -901,16 +839,37 @@ function SubmittedItems({ controller, items }: { controller: BbmReportController
           <span>{formatField(field, item[field])}</span>
         </span>
       ),
-      cellClassName: (item) => (itemDifferences(item.id, field) ? "bbm-report__cell--differs" : undefined),
+      cellClassName: (item) =>
+        [
+          computed ? "bbm-report__cell--computed" : null,
+          itemDifferences(item.id, field) ? "bbm-report__cell--differs" : null,
+        ]
+          .filter(Boolean)
+          .join(" ") || undefined,
       cellTitle: (item) =>
         itemDifferences(item.id, field)
           ?.map((difference) => difference.description)
-          .join("\n"),
+          .join("\n") ?? (computed ? t("report:items.computedTitle", { percent: priceToleranceText() }) : undefined),
     };
   }
 
   const columns: BlueTableColumn<BbmItem>[] = [
-    { key: "item_id", header: t("report:items.item"), width: WIDTHS.ref },
+    {
+      key: "item_id",
+      header: t("report:items.item"),
+      width: WIDTHS.ref,
+      nowrap: true,
+      // With several receipt files: the ones of the item, under its id
+      render: (item) =>
+        manyPhotos ? (
+          <span className="bbm-report__stack">
+            <span>{item.item_id}</span>
+            <span className="bbm-report__item-files">{review?.fileNamesOf(item).join(", ")}</span>
+          </span>
+        ) : (
+          item.item_id
+        ),
+    },
     ...COMPARED_FIELDS.map(itemCell),
     itemCell("kilometer"),
   ];
@@ -950,6 +909,107 @@ function SubmittedItems({ controller, items }: { controller: BbmReportController
   );
 }
 
+// ---------------------------------------------------------------------------
+// The fuel price page's price of each item's fuel, next to the price per liter worked out from the item
+// ---------------------------------------------------------------------------
+
+function FuelPriceValue({ cell, gap }: { cell: FuelPriceCell; gap?: string | null }) {
+  return (
+    <span className="bbm-report__stack">
+      <span className={cell.known ? "bbm-report__fuel-value" : "bbm-report__fuel-missing"}>{cell.value}</span>
+      {cell.note ? <span className="bbm-report__muted">{cell.note}</span> : null}
+      {gap ? <span className="bbm-report__fuel-gap">{gap}</span> : null}
+    </span>
+  );
+}
+
+function FuelPrices({ controller }: { controller: BbmReportController }) {
+  const rows = controller.fuelPrices;
+  if (rows.length === 0) return null;
+  const columns: BlueTableColumn<ItemFuelPriceRow>[] = [
+    { key: "item", header: t("report:items.item"), width: WIDTHS.ref, nowrap: true, render: (row) => row.item.item_id },
+    {
+      key: "fuel",
+      header: t("report:fuelPrice.fuel"),
+      render: (row) => (
+        <span className="bbm-report__stack">
+          <span className={row.fuelKnown ? "bbm-report__fuel-name" : "bbm-report__fuel-missing"}>{row.fuel}</span>
+          <span className="bbm-report__muted">{row.fuelNote}</span>
+        </span>
+      ),
+    },
+    {
+      key: "computed",
+      header: (
+        <span className="bbm-report__stack">
+          <span>{fieldLabel("price_per_liter")}</span>
+          <span className="bbm-report__computed">{t("report:items.computed")}</span>
+        </span>
+      ),
+      label: `${fieldLabel("price_per_liter")} (${t("report:items.computed")})`,
+      align: "right",
+      width: "128px",
+      nowrap: true,
+      render: (row) => (
+        <span className="bbm-report__stack">
+          <span className="bbm-report__fuel-value">{formatMoney(row.item.price_per_liter)}</span>
+          <span className="bbm-report__muted">{t("report:fuelPrice.computedNote")}</span>
+        </span>
+      ),
+    },
+    {
+      key: "on_date",
+      header: (
+        <span className="bbm-report__stack">
+          <span>{t("report:fuelPrice.onDate")}</span>
+          <span className="bbm-report__computed">{t("report:fuelPrice.onDateHint")}</span>
+        </span>
+      ),
+      label: t("report:fuelPrice.onDate"),
+      align: "right",
+      width: "176px",
+      render: (row) => <FuelPriceValue cell={row.onDate} gap={row.gap} />,
+      cellClassName: (row) => (row.gap ? "bbm-report__cell--differs" : undefined),
+    },
+    {
+      key: "today",
+      header: t("report:fuelPrice.today"),
+      align: "right",
+      width: "176px",
+      render: (row) => <FuelPriceValue cell={row.today} />,
+    },
+  ];
+
+  return (
+    <BlueCard
+      className="bbm-report__table-card"
+      header={
+        <CardHeader
+          title={t("report:fuelPrice.title")}
+          meta={
+            <>
+              {t("report:fuelPrice.meta")}
+              <BlueLink {...linkTo(FUEL_PRICES_PATH)}>{t("report:fuelPrice.open")}</BlueLink>
+            </>
+          }
+        />
+      }
+    >
+      <BlueTable
+        dense
+        stackOnMobile
+        caption={t("report:fuelPrice.title")}
+        columns={columns}
+        data={rows}
+        rowKey={(row) => row.item.id}
+      />
+      <p className="bbm-report__table-note">
+        {t("report:fuelPrice.note", { percent: formatPercent(FUEL_PRICE_TOLERANCE) })}
+      </p>
+    </BlueCard>
+  );
+}
+
 type LineField = keyof BbmOcrLine["confidence"];
 
 function OcrReading({
@@ -965,6 +1025,8 @@ function OcrReading({
   const result = photo.ocr;
   if (!result) return null;
   const title = manyPhotos ? t("report:ocr.titleOf", { name: photo.name }) : t("report:ocr.title");
+  // With several files: the items this one was compared with (the ones it was sent with)
+  const comparedWith = manyPhotos ? (controller.review?.itemIdsOf(photo) ?? []) : [];
 
   function lineCell(field: LineField): BlueTableColumn<BbmOcrLine> {
     return {
@@ -1024,6 +1086,9 @@ function OcrReading({
           meta={
             <>
               {manyPhotos ? <OcrStatusBadge status={result.decision} /> : null}
+              {comparedWith.length > 0 ? (
+                <span>{t("report:ocr.comparedWith", { count: comparedWith.length, items: comparedWith.join(", ") })}</span>
+              ) : null}
               {t("report:ocr.read", {
                 date: formatDateTime(result.processed_at),
                 duration: formatSeconds(result.elapsed_seconds),
@@ -1146,7 +1211,7 @@ function Comments({ controller }: { controller: BbmReportController }) {
 // Icons
 // ---------------------------------------------------------------------------
 
-type IconName = "back" | "previous" | "next" | "arrow" | "down" | "check" | "cross" | "rejected" | OcrStatus;
+type IconName = "back" | "previous" | "next" | "arrow" | "down" | "check" | "cross" | "rejected" | "external" | OcrStatus;
 
 const ICON_PATHS: Record<IconName, ReactNode> = {
   back: <path d="M12.5 4 6.5 10l6 6" />,
@@ -1156,6 +1221,7 @@ const ICON_PATHS: Record<IconName, ReactNode> = {
   down: <path d="M10 4v11m-4-4 4 4 4-4" />,
   check: <path d="m4.5 10.5 3.5 3.5 7.5-8" />,
   cross: <path d="m5.5 5.5 9 9m0-9-9 9" />,
+  external: <path d="M11.5 3.5h5v5m0-5-7 7M14.5 11.5v4a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1h4" />,
   rejected: (
     <>
       <circle cx="10" cy="10" r="7" />

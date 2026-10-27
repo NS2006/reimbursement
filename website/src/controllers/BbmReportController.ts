@@ -6,9 +6,10 @@ import type { ViewerFile } from "../components/FileViewer";
 import type {
   BbmItem,
   BbmOcrLine,
+  BbmPhoto,
   BbmReimbursement,
-  BbmRevision,
   DecisionInForce,
+  FuelPriceOnDay,
   OcrDifference,
   OcrErrorReason,
   OcrResult,
@@ -16,19 +17,20 @@ import type {
   ReimbursementComment,
   ReviewDecision,
   ReviewStatus,
+  SameReceipt,
 } from "../types/reimbursement";
 import type { User } from "../types/user";
-import { BBM_FIELDS, fieldLabel, formatField } from "../utils/bbmFields";
-import { EMPTY, formatMoney, formatNumber, formatPercent } from "../utils/format";
+import { BBM_FIELDS, fieldLabel, formatField, priceToleranceText } from "../utils/bbmFields";
+import { EMPTY, formatDateTime, formatMoney, formatNumber, formatPercent } from "../utils/format";
 import { REVIEW_STATUSES } from "../utils/reviewStatus";
 import { changedParts, slipBetween, type ValuePart } from "../utils/valueDiff";
 import { ApiError, apiUrl, errorMessage, jsonBody, request, requestFile, useApi } from "./api";
 import { BBM_PATH, bbmReportPath, queueCodes as loadQueueCodes, queueLabel, readBbmQueue } from "./BbmController";
+import { merchantName } from "./FuelPriceController";
 
-// Logic for one BBM report (pages/BbmReportPage.tsx): the report and its revisions, which revision is shown,
-// where the OCR reading differs from the submitted items, what changed since the revision before, the way
-// back to the list and to the previous / next report in it, the reviewer's decision (approve, reject, take back,
-// undo, then on to the next report) and the reviewers' comments.
+// Logic for one BBM report (pages/BbmReportPage.tsx): the report, where the OCR reading of each receipt file differs
+// from the submitted items it is attached to, the way back to the list and to the previous / next report in it, the
+// reviewer's decision (approve, reject, take back, undo, then on to the next report) and the reviewers' comments.
 
 /** Why the OCR couldn't read a file, when reading it again can't help: the file is gone, or too big for the OCR. */
 const FINAL_FAILURES: ReadonlySet<OcrErrorReason> = new Set(["file_missing", "pdf_too_large", "pdf_too_many_pages"]);
@@ -39,7 +41,7 @@ const FINAL_FAILURES: ReadonlySet<OcrErrorReason> = new Set(["file_missing", "pd
 
 interface LoadedReport {
   report: BbmReimbursement;
-  /** When the report was loaded (milliseconds), for "Updated 09:30" and the age of the revision. */
+  /** When the report was loaded (milliseconds), for "Updated 09:30". */
   loadedAt: number;
 }
 
@@ -77,10 +79,9 @@ async function deleteComment(code: string, commentId: number, userEmail: string)
 
 interface DecisionRequest {
   user_email: string;
-  revision_no: number;
   decision: ReviewDecision["decision"];
   reason: string | null;
-  /** The newest decision the reviewer saw on the revision (null when it had none): if another reviewer decided
+  /** The newest decision the reviewer saw on the report (null when it had none): if another reviewer decided
    * in the meantime, the backend answers 409 instead of overwriting it. */
   based_on: number | null;
 }
@@ -93,11 +94,11 @@ async function postDecision(code: string, body: DecisionRequest) {
   );
 }
 
-/** The files of the revision the OCR could not read, queued again; and the whole report as it is now. */
-async function postOcrRetry(code: string, revisionNo: number) {
+/** The files of the report the OCR could not read, queued again; and the whole report as it is now. */
+async function postOcrRetry(code: string) {
   return request<{ queued: number; reimbursement: BbmReimbursement }>(
     `/reimbursements/${encodeURIComponent(code)}/ocr/retry`,
-    jsonBody("POST", { revision_no: revisionNo }),
+    jsonBody("POST", {}),
   );
 }
 
@@ -109,7 +110,7 @@ function isGone(error: unknown): boolean {
   return error instanceof ApiError && error.status === 404;
 }
 
-/** Another reviewer decided, or a new revision arrived, while the report was on screen. */
+/** Another reviewer decided (or retried the OCR) while the report was on screen. */
 function isConflict(error: unknown): boolean {
   return error instanceof ApiError && error.status === 409;
 }
@@ -144,13 +145,13 @@ function cellKey(rowId: number | null, field: string): string {
   return `${rowId}:${field}`;
 }
 
-/** The submitted items by item id; numbers in it count as numbers, so RB-064-10 comes after RB-064-9. */
+/** The submitted items by item id; numbers in it count as numbers, so EXP_10 comes after EXP_9. */
 function itemsById(items: BbmItem[]): BbmItem[] {
   return [...items].sort((a, b) => a.item_id.localeCompare(b.item_id, "en", { numeric: true }));
 }
 
-/** The receipt files of a revision (a photo or a PDF), loaded through the backend for the viewer. */
-function filesOf(photos: Pick<BbmRevision["photos"][number], "id" | "name">[]): ViewerFile[] {
+/** The receipt files of a report (a photo or a PDF), loaded through the backend for the viewer. */
+function filesOf(photos: Pick<BbmPhoto, "id" | "name">[]): ViewerFile[] {
   return photos.map((photo) => {
     const path = `/attachments/${photo.id}/file`;
     return {
@@ -166,7 +167,7 @@ function filesOf(photos: Pick<BbmRevision["photos"][number], "id" | "name">[]): 
 // The review summary: each difference explained, and what it means for the total
 // ---------------------------------------------------------------------------
 
-/** One side of a difference as the summary shows it. */
+/** One side of a difference as the summary shows it: the value only (why goes in the view's hint). */
 export interface DifferenceSide {
   /** The value, with the characters that differ from the other side marked (or "Not found", "Couldn't read"). */
   parts: ValuePart[];
@@ -175,8 +176,6 @@ export interface DifferenceSide {
   /** fits: agrees with the other numbers on the receipt. wrong: doesn't (submitted: likely a mistake in the
    *  submitted data; read by the OCR: a misread). plain: nothing could decide. */
   tone: "fits" | "wrong" | "plain";
-  /** Why, e.g. "Fits 32,859 L × Rp 12.300" or "32,859 L × Rp 12.300 is Rp 404.166"; null when nothing to say. */
-  note: string | null;
 }
 
 /** A difference explained for the reviewer: what differs, both values, which one the receipt supports, and why. */
@@ -184,15 +183,20 @@ export interface DifferenceView {
   difference: ReviewDifference;
   /** e.g. "Amount", "Receipt" */
   label: string;
-  /** e.g. "item RB-046-1 · receipt 1" */
+  /** e.g. "item EXP_10064 · receipt 1" */
   where: string;
-  /** The headline when it is the only difference, e.g. "Amount of RB-046-1 doesn't match the receipt". */
+  /** The headline when it is the only difference, e.g. "Amount of EXP_10064 doesn't match the receipt". */
   title: string;
   /** The line under that headline. */
   summary: string;
+  /** The caption over the submitted value when it isn't just "Submitted" (the price per liter: worked out from the
+   *  submitted amount and volume). */
+  submittedCaption?: string;
   submitted: DifferenceSide;
   receipt: DifferenceSide;
-  /** What it looks like ("Two digits are swapped (1 and 4): ...") and what to check; null when the sides say it. */
+  /** Why, under both values: which side the receipt's other numbers support and how ("The OCR is likely right:
+   *  35,291 L × Rp 12.750 is about Rp 449.960, which fits what the OCR read."), what the slip looks like ("Two digits
+   *  are swapped (5 and 4): ...") and what to check; null when there is nothing to add. */
   hint: string | null;
 }
 
@@ -264,8 +268,6 @@ function formulaOf(field: string, line: BbmOcrLine | null, item: BbmItem | null)
       return volume !== null && price !== null ? `${formatNumber(volume)} L × ${formatMoney(price)}` : null;
     case "volume_liter":
       return amount !== null && price !== null ? `${formatMoney(amount)} ÷ ${formatMoney(price)}` : null;
-    case "price_per_liter":
-      return amount !== null && volume !== null ? `${formatMoney(amount)} ÷ ${formatNumber(volume)} L` : null;
     default:
       return null;
   }
@@ -274,6 +276,14 @@ function formulaOf(field: string, line: BbmOcrLine | null, item: BbmItem | null)
 /** The value the other numbers give, as the field is shown (amounts to the rupiah: Rp 404.166, not 404.165,7). */
 function expectedText(field: string, value: number): string {
   return formatField(field, BBM_FIELDS[field]?.kind === "money" ? Math.round(value) : value);
+}
+
+/** "The OCR was only 70% sure it read this right."; null when it was sure enough. */
+function unsureOf(line: BbmOcrLine | null, field: string): string | null {
+  const confidence = line?.confidence[field as keyof BbmOcrLine["confidence"]] ?? null;
+  return confidence !== null && confidence < CONFIDENT
+    ? t("report:difference.unsure", { percent: formatPercent(confidence) })
+    : null;
 }
 
 function differenceView(
@@ -295,7 +305,6 @@ function differenceView(
     parts: [{ text, changed: false }],
     empty,
     tone: "plain",
-    note: null,
   });
 
   // A receipt on one side only
@@ -335,18 +344,56 @@ function differenceView(
   const compared = submittedValue !== null && ocrValue !== null && kind !== "text";
   const slip = compared ? slipBetween(kind, submittedValue, ocrValue) : null;
 
+  // The price per liter isn't submitted: the item's amount ÷ volume against the price on the receipt. Nothing decides
+  // which is right (receipt_validation.py's _computed_price): an OCR misread of the price looks just like an amount or
+  // volume changed on the receipt.
+  if (field === "price_per_liter") {
+    const gap = compared ? Math.abs(Number(ocrValue) - Number(submittedValue)) : null;
+    const value = (text: string, other: string): DifferenceSide => ({
+      ...plain(text),
+      parts: compared ? changedParts(text, other) : [{ text, changed: false }],
+    });
+    return {
+      difference,
+      label,
+      where,
+      title: t("report:difference.priceTitle", { what: of }),
+      summary: t("report:difference.priceSummary"),
+      submittedCaption: t("report:difference.computed"),
+      submitted: value(submittedText, receiptText),
+      receipt: ocrValue === null ? plain(t("report:difference.couldNotRead"), true) : value(receiptText, submittedText),
+      hint:
+        [
+          item
+            ? t("report:difference.computedFrom", {
+                amount: formatMoney(item.total_price),
+                volume: formatNumber(item.volume_liter),
+              })
+            : null,
+          gap === null ? null : t("report:difference.priceApart", { gap: formatMoney(gap), percent: priceToleranceText() }),
+          unsureOf(line, field),
+        ]
+          .filter(Boolean)
+          .join(" ") || null,
+    };
+  }
+
   const formula = formulaOf(field, line, item);
   const expected = difference.expected_value === null ? null : expectedText(field, difference.expected_value);
-  // The pump rounds: the value that fits can be a little off what the numbers give (Rp 646.180 for 646.176)
+  // Why the receipt's other numbers support one side. The pump rounds: the value that fits can be a little off what
+  // the numbers give (Rp 646.180 for 646.176), so it is "about" then.
   const fittingText = likelyWrong === "submitted" ? receiptText : submittedText;
-  const is = expected === fittingText ? "report:difference.is" : "report:difference.isAbout";
-  const fitsNote = formula ? t("report:difference.fits", { formula }) : t("report:difference.fitsOther");
-  const wrongNote =
+  const fittingSide = t(likelyWrong === "submitted" ? "report:difference.sideOcr" : "report:difference.sideSubmitted");
+  const because =
     formula && expected
-      ? t(is, { formula, expected })
+      ? t(expected === fittingText ? "report:difference.becauseIs" : "report:difference.becauseAbout", {
+          formula,
+          expected,
+          side: fittingSide,
+        })
       : expected
-        ? t("report:difference.otherNumbersGive", { expected })
-        : null;
+        ? t("report:difference.becauseOther", { expected, side: fittingSide })
+        : t("report:difference.becauseFits", { side: fittingSide });
   const side = (value: string | null, text: string, other: string, wrong: boolean, emptyText: string): DifferenceSide =>
     value === null
       ? plain(emptyText, true)
@@ -354,7 +401,6 @@ function differenceView(
           parts: compared ? changedParts(text, other) : [{ text, changed: false }],
           empty: false,
           tone: likelyWrong === null ? "plain" : wrong ? "wrong" : "fits",
-          note: likelyWrong === null ? null : wrong ? wrongNote : fitsNote,
         };
   const submitted = side(
     submittedValue,
@@ -374,10 +420,11 @@ function differenceView(
       summary: t("report:difference.submittedSummary"),
       submitted,
       receipt,
-      hint: slip ? t("report:difference.submittedHint", { slip }) : null,
+      hint: [t("report:difference.ocrRight", { because }), slip ? t("report:difference.submittedHint", { slip }) : null]
+        .filter(Boolean)
+        .join(" "),
     };
   }
-  // The receipt side already says "Couldn't read", so no hint repeats it
   if (likelyWrong === "ocr") {
     return {
       difference,
@@ -390,7 +437,9 @@ function differenceView(
       summary: t("report:difference.ocrSummary"),
       submitted,
       receipt,
-      hint: slip ? t("report:difference.ocrHint", { slip }) : null,
+      hint: [t("report:difference.submittedRight", { because }), slip ? t("report:difference.ocrHint", { slip }) : null]
+        .filter(Boolean)
+        .join(" "),
     };
   }
   if (ocrValue === null) {
@@ -402,14 +451,10 @@ function differenceView(
       summary: t("report:difference.unreadSummary"),
       submitted,
       receipt,
-      hint: null,
+      hint: t("report:difference.unreadSummary"),
     };
   }
-  const confidence = line?.confidence[field as keyof BbmOcrLine["confidence"]] ?? null;
-  const unsure =
-    confidence !== null && confidence < CONFIDENT
-      ? t("report:difference.unsure", { percent: formatPercent(confidence) })
-      : null;
+  const unsure = unsureOf(line, field);
   return {
     difference,
     label,
@@ -460,12 +505,12 @@ function gapText(submitted: number, receipt: number): string | null {
     : t(gap > 0 ? "report:totals.more" : "report:totals.less", { amount: formatMoney(Math.abs(gap)) });
 }
 
-function tableTotalsOf(revision: BbmRevision, receiptTotal: number | null): TableTotals {
-  const amounts = revision.items.reduce((sum, item) => sum + item.total_price, 0);
-  const total = revision.grand_total;
+function tableTotalsOf(report: BbmReimbursement, receiptTotal: number | null): TableTotals {
+  const amounts = report.items.reduce((sum, item) => sum + item.total_price, 0);
+  const total = report.grand_total;
   const gap = total - amounts;
-  const files = new Map(revision.photos.flatMap((photo) => (photo.ocr ? [[photo.id, fileTotalsOf(photo.ocr)] as const] : [])));
-  const many = revision.photos.length > 1;
+  const files = new Map(report.photos.flatMap((photo) => (photo.ocr ? [[photo.id, fileTotalsOf(photo.ocr)] as const] : [])));
+  const many = report.photos.length > 1;
   return {
     submitted: {
       amounts,
@@ -483,7 +528,7 @@ function tableTotalsOf(revision: BbmRevision, receiptTotal: number | null): Tabl
     allFiles:
       many && receiptTotal !== null
         ? {
-            parts: revision.photos.map((photo) => ({ name: photo.name, printed: photo.ocr?.grand_total ?? 0 })),
+            parts: report.photos.map((photo) => ({ name: photo.name, printed: photo.ocr?.grand_total ?? 0 })),
             total: receiptTotal,
             gap: gapText(total, receiptTotal),
           }
@@ -491,13 +536,14 @@ function tableTotalsOf(revision: BbmRevision, receiptTotal: number | null): Tabl
   };
 }
 
-/** What the OCR found for one revision, over all its photos. */
-function reviewOf(revision: BbmRevision) {
-  const itemIds = new Map(revision.items.map((item) => [item.id, item.item_id]));
-  const itemsByRow = new Map(revision.items.map((item) => [item.id, item]));
+/** What the OCR found for a report, over all its files. */
+function reviewOf(report: BbmReimbursement) {
+  const itemIds = new Map(report.items.map((item) => [item.id, item.item_id]));
+  const itemsByRow = new Map(report.items.map((item) => [item.id, item]));
+  const photoNames = new Map(report.photos.map((photo) => [photo.id, photo.name]));
   const linesById = new Map<number, BbmOcrLine>();
   const differences: ReviewDifference[] = [];
-  for (const photo of revision.photos) {
+  for (const photo of report.photos) {
     const lineNos = new Map(photo.ocr?.lines.map((line, index) => [line.id, index + 1]) ?? []);
     for (const line of photo.ocr?.lines ?? []) linesById.set(line.id, line);
     for (const difference of photo.ocr?.differences ?? []) {
@@ -522,10 +568,10 @@ function reviewOf(revision: BbmRevision) {
     }
   }
 
-  const read = revision.photos.flatMap((photo) => (photo.ocr ? [photo.ocr] : []));
+  const read = report.photos.flatMap((photo) => (photo.ocr ? [photo.ocr] : []));
   const totals = read.map((result) => result.grand_total);
   const ocrTotal =
-    read.length === revision.photos.length && read.length > 0 && totals.every((total) => total !== null)
+    read.length === report.photos.length && read.length > 0 && totals.every((total) => total !== null)
       ? totals.reduce<number>((sum, total) => sum + (total ?? 0), 0)
       : null;
 
@@ -537,7 +583,7 @@ function reviewOf(revision: BbmRevision) {
   const fieldViews = differences
     .filter((difference) => difference.field_name !== "grand_total")
     .map((difference) =>
-      differenceView(difference, lineOf(difference), itemOf(difference), revision.photos.length > 1),
+      differenceView(difference, lineOf(difference), itemOf(difference), report.photos.length > 1),
     );
   const totalDifference = differences.find((difference) => difference.field_name === "grand_total") ?? null;
 
@@ -546,20 +592,25 @@ function reviewOf(revision: BbmRevision) {
     /** Every difference but the grand total, explained (the grand totals are compared under the tables). */
     fieldViews,
     /** The totals under the tables. */
-    totals: tableTotalsOf(revision, ocrTotal),
+    totals: tableTotalsOf(report, ocrTotal),
     /** When the grand total is the only difference: its headline and the line under it. */
     totalHeadline: fieldViews.length === 0 && totalDifference ? totalHeadlineOf(totalDifference) : null,
-    items: itemsById(revision.items),
+    items: itemsById(report.items),
+    /** The names of an item's receipt files. */
+    fileNamesOf: (item: BbmItem) => item.photo_ids.flatMap((id) => photoNames.get(id) ?? []),
+    /** The item ids a receipt file is attached to (what the OCR compared it with), by item id. */
+    itemIdsOf: (photo: BbmPhoto) =>
+      photo.item_ids.flatMap((id) => itemIds.get(id) ?? []).sort((a, b) => a.localeCompare(b, "en", { numeric: true })),
     byItemCell,
     byLineCell,
     photosRead: read.length,
     /** The files the OCR could not read, with why and how many times it tried. */
-    failed: revision.photos
+    failed: report.photos
       .filter((photo) => photo.ocr_status === "failed")
       .map((photo) => ({ name: photo.name, reason: photo.ocr_error_reason ?? "other", attempts: photo.ocr_attempts })),
-    /** The total the OCR read over all photos; null until every photo is read. */
+    /** The total the OCR read over all files; null until every file is read. */
     ocrTotal,
-    /** When the OCR last read a photo of this revision. */
+    /** When the OCR last read a file of this report. */
     readAt: read.map((result) => result.processed_at).sort().at(-1) ?? null,
   };
 }
@@ -580,56 +631,6 @@ function totalHeadlineOf(difference: ReviewDifference): { title: string; summary
     default:
       return { title: t("report:totalHeadline.differsTitle"), summary: t("report:difference.checkWhich") };
   }
-}
-
-// ---------------------------------------------------------------------------
-// What changed from one revision to the next
-// ---------------------------------------------------------------------------
-
-const ITEM_FIELDS = [
-  "product_name",
-  "date_of_expense",
-  "price_per_liter",
-  "volume_liter",
-  "kilometer",
-  "total_price",
-] as const satisfies readonly (keyof BbmItem)[];
-
-export type RevisionChange =
-  | { kind: "value"; itemId: string; field: string; before: string | number | null; after: string | number | null }
-  | { kind: "added" | "removed"; itemId: string; amount: number }
-  | { kind: "grand_total"; before: number; after: number }
-  | { kind: "photos"; before: string[]; after: string[] };
-
-/** The differences between a revision and the one sent before it; items are matched by their item id. */
-function changesBetween(before: BbmRevision, after: BbmRevision): RevisionChange[] {
-  const changes: RevisionChange[] = [];
-  if (before.grand_total !== after.grand_total) {
-    changes.push({ kind: "grand_total", before: before.grand_total, after: after.grand_total });
-  }
-  const earlier = new Map(before.items.map((item) => [item.item_id, item]));
-  const later = new Set(after.items.map((item) => item.item_id));
-  for (const item of itemsById(after.items)) {
-    const old = earlier.get(item.item_id);
-    if (!old) {
-      changes.push({ kind: "added", itemId: item.item_id, amount: item.total_price });
-      continue;
-    }
-    for (const field of ITEM_FIELDS) {
-      if (old[field] !== item[field]) {
-        changes.push({ kind: "value", itemId: item.item_id, field, before: old[field], after: item[field] });
-      }
-    }
-  }
-  for (const item of itemsById(before.items)) {
-    if (!later.has(item.item_id)) changes.push({ kind: "removed", itemId: item.item_id, amount: item.total_price });
-  }
-  const photoNames = (revision: BbmRevision) => revision.photos.map((photo) => photo.name).sort();
-  const [namesBefore, namesAfter] = [photoNames(before), photoNames(after)];
-  if (namesBefore.join("\n") !== namesAfter.join("\n")) {
-    changes.push({ kind: "photos", before: namesBefore, after: namesAfter });
-  }
-  return changes;
 }
 
 // ---------------------------------------------------------------------------
@@ -671,16 +672,8 @@ function flash(cells: HTMLElement[]) {
 // The reviewer's decision
 // ---------------------------------------------------------------------------
 
-/** The rejection of the revision before, which the shown revision should fix. */
-export interface PreviousRejection {
-  revisionNo: number;
-  decision: DecisionInForce;
-}
-
-/** What the decision bar at the bottom of the page offers for the shown revision. */
+/** What the decision bar at the bottom of the page offers. */
 export type DecisionPanel =
-  /** An older revision: only the current one is decided. */
-  | { kind: "old"; currentNo: number }
   /** Nobody decided yet: approve or reject. */
   | { kind: "open"; status: "needs_review" | "processing" }
   /** The OCR approved it (matched, or only OCR misreads); a reviewer can still reject it. */
@@ -688,34 +681,26 @@ export type DecisionPanel =
   /** A reviewer decided: decide the other way, or take the decision back. */
   | { kind: "decided"; decision: DecisionInForce; mine: boolean; afterTakeBack: ReviewStatus };
 
-/** The review status of a revision without a reviewer's decision (as the backend's review_status). */
-function statusWithoutDecision(revision: BbmRevision): ReviewStatus {
-  if (revision.ocr_status === "matched" || revision.ocr_status === "proceed") return "approved";
-  return revision.ocr_status === "failed" ? "needs_review" : revision.ocr_status;
+/** The review status of a report without a reviewer's decision (as the backend's review_status). */
+function statusWithoutDecision(report: BbmReimbursement): ReviewStatus {
+  if (report.double_claim) return "needs_review";
+  if (report.ocr_status === "matched" || report.ocr_status === "proceed") return "approved";
+  return report.ocr_status === "failed" ? "needs_review" : report.ocr_status;
 }
 
-function decisionPanelOf(revision: BbmRevision, current: BbmRevision, userEmail: string): DecisionPanel {
-  if (revision !== current) return { kind: "old", currentNo: current.revision_no };
-  if (revision.decision) {
+function decisionPanelOf(report: BbmReimbursement, userEmail: string): DecisionPanel {
+  if (report.decision) {
     return {
       kind: "decided",
-      decision: revision.decision,
-      mine: revision.decision.user_email === userEmail,
-      afterTakeBack: statusWithoutDecision(revision),
+      decision: report.decision,
+      mine: report.decision.user_email === userEmail,
+      afterTakeBack: statusWithoutDecision(report),
     };
   }
-  if (revision.review_status === "approved") {
-    return { kind: "auto", by: revision.ocr_status === "proceed" ? "proceed" : "matched" };
+  if (report.review_status === "approved") {
+    return { kind: "auto", by: report.ocr_status === "proceed" ? "proceed" : "matched" };
   }
-  return { kind: "open", status: revision.review_status === "processing" ? "processing" : "needs_review" };
-}
-
-/** The latest earlier revision with a decision, when that decision was a rejection. */
-function previousRejectionOf(revisions: BbmRevision[], index: number): PreviousRejection | null {
-  const decided = revisions.slice(index + 1).find((candidate) => candidate.decision !== null);
-  return decided?.decision?.decision === "rejected"
-    ? { revisionNo: decided.revision_no, decision: decided.decision }
-    : null;
+  return { kind: "open", status: report.review_status === "processing" ? "processing" : "needs_review" };
 }
 
 /** A list of reports still to decide (the "Needs review" filter): deciding one there opens the next one. */
@@ -723,12 +708,19 @@ function isWorkList(url: string): boolean {
   return new URL(url, window.location.origin).searchParams.get("status") === "needs_review";
 }
 
-function usualReasons(): string[] {
-  return [t("report:rejectDialog.unreadable"), t("report:rejectDialog.claimedBefore")];
+/** "Already claimed in EREP_x", for each report that claimed the receipt before. */
+function claimedInReasons(report: BbmReimbursement | null): string[] {
+  return report ? doubleClaims(report).map((entry) => t("report:rejectDialog.claimedIn", { code: entry.reimbursement_code })) : [];
 }
 
-/** Ready-made reasons to reject: what the receipt shows where it differs from the submitted data, and the usual ones. */
-function reasonSuggestions(differences: ReviewDifference[]): string[] {
+/** The usual reasons; "claimed in another report" only when no report is known to have claimed it before. */
+function usualReasons(report: BbmReimbursement | null): string[] {
+  return [t("report:rejectDialog.unreadable"), ...(report?.double_claim ? [] : [t("report:rejectDialog.claimedBefore")])];
+}
+
+/** Ready-made reasons to reject: the reports that claimed the receipt before, what the receipt shows where it
+ *  differs from the submitted data, and the usual ones. */
+function reasonSuggestions(differences: ReviewDifference[], report: BbmReimbursement): string[] {
   const found = differences
     .filter((difference) => difference.ocr_value !== null)
     .map((difference) => {
@@ -736,37 +728,35 @@ function reasonSuggestions(differences: ReviewDifference[]): string[] {
       const what = difference.itemId ? t("report:rejectDialog.fieldOfItem", { field, item: difference.itemId }) : field;
       const submitted = formatField(difference.field_name, difference.submitted_value);
       const read = formatField(difference.field_name, difference.ocr_value);
-      return t("report:rejectDialog.suggestion", { what, submitted, read });
+      // The price per liter isn't submitted: the amount ÷ volume gives it
+      return difference.field_name === "price_per_liter"
+        ? t("report:rejectDialog.priceSuggestion", { what, computed: submitted, read })
+        : t("report:rejectDialog.suggestion", { what, submitted, read });
     });
-  return [...new Set(found)].slice(0, 4).concat(usualReasons());
+  return [...claimedInReasons(report), ...[...new Set(found)].slice(0, 4), ...usualReasons(report)];
 }
 
 /** One line of the report's history. */
 export type HistoryEvent =
-  | { kind: "received"; at: string; revisionNo: number }
-  | { kind: "read"; at: string; revisionNo: number; status: OcrStatus }
-  | { kind: "decision"; at: string; revisionNo: number; decision: ReviewDecision };
+  | { kind: "received"; at: string }
+  | { kind: "read"; at: string; status: OcrStatus }
+  | { kind: "decision"; at: string; decision: ReviewDecision };
 
 const EVENT_ORDER = { received: 0, read: 1, decision: 2 } as const;
 
-/** Everything that happened to the report, newest first: revisions received, read by the OCR, and decided. */
+/** Everything that happened to the report, newest first: received, read by the OCR, and decided. */
 function historyOf(report: BbmReimbursement): HistoryEvent[] {
-  const events: HistoryEvent[] = [];
-  for (const revision of report.revisions) {
-    const revisionNo = revision.revision_no;
-    events.push({ kind: "received", at: revision.received_at, revisionNo });
-    const readAt = revision.photos.map((photo) => photo.ocr?.processed_at ?? null);
-    if (revision.ocr_status !== "processing" && readAt.every((at) => at !== null)) {
-      events.push({ kind: "read", at: readAt.sort().at(-1) ?? revision.received_at, revisionNo, status: revision.ocr_status });
-    }
-    for (const decision of revision.decisions) {
-      events.push({ kind: "decision", at: decision.decided_at, revisionNo, decision });
-    }
+  const events: HistoryEvent[] = [{ kind: "received", at: report.received_at }];
+  const readAt = report.photos.map((photo) => photo.ocr?.processed_at ?? null);
+  if (report.ocr_status !== "processing" && readAt.every((at) => at !== null)) {
+    events.push({ kind: "read", at: readAt.sort().at(-1) ?? report.received_at, status: report.ocr_status });
+  }
+  for (const decision of report.decisions) {
+    events.push({ kind: "decision", at: decision.decided_at, decision });
   }
   return events.sort(
     (a, b) =>
       Date.parse(b.at) - Date.parse(a.at) ||
-      b.revisionNo - a.revisionNo ||
       EVENT_ORDER[b.kind] - EVENT_ORDER[a.kind] ||
       (a.kind === "decision" && b.kind === "decision" ? b.decision.id - a.decision.id : 0),
   );
@@ -789,6 +779,161 @@ function measureDecisionBar(bar: HTMLElement | null) {
 
 export type BbmReportController = ReturnType<typeof useBbmReportController>;
 
+// ---------------------------------------------------------------------------
+// Other reports claiming the same receipt (the backend finds them: a file with the same content, or the same
+// employee's receipt with the same day, amount and volume)
+// ---------------------------------------------------------------------------
+
+/** The id of the card listing them, which the summary's "compare" button scrolls to. */
+export const SAME_RECEIPT_ID = "bbm-same-receipt";
+
+function showSameReceipt() {
+  const smooth = !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  document.getElementById(SAME_RECEIPT_ID)?.scrollIntoView({ behavior: smooth ? "smooth" : "auto", block: "start" });
+}
+
+/** The reports received before that claim the same receipt, not as a resubmission: oldest first. */
+export function doubleClaims(report: BbmReimbursement): SameReceipt[] {
+  return report.same_receipt.filter((entry) => entry.kind === "double_claim");
+}
+
+/** Another report claiming the same receipt, as the page shows it. */
+export interface SameReceiptRow {
+  entry: SameReceipt;
+  path: string;
+  /** A double claim: the one problem here. */
+  problem: boolean;
+  /** Sent by another employee than this report: shown as a warning. */
+  otherEmployee: boolean;
+  /** What both have: "The exact same file: 14.jpeg", or else "Receipt of 03-09-2026 · Rp 449.960 · 35,291 L". */
+  evidence: string[];
+  /** Who decided it, under its status: "By Rina, 08-09-2026 10:00", "By the OCR"; null while it is open. */
+  decidedBy: string | null;
+  /** Why it was rejected (a resubmission: check it was fixed). */
+  reason: string | null;
+}
+
+function sameReceiptRows(report: BbmReimbursement): SameReceiptRow[] {
+  return report.same_receipt.map((entry) => ({
+    entry,
+    path: bbmReportPath(entry.reimbursement_code),
+    problem: entry.kind === "double_claim",
+    otherEmployee: entry.employee_no !== report.employee_no,
+    // The exact same file says it all; else the numbers both receipts have
+    evidence: [
+      ...entry.files.map((name) => t("report:sameReceipt.sameFile", { name })),
+      ...(entry.files.length > 0 ? [] : entry.numbers).map((numbers) =>
+        t("report:sameReceipt.sameNumbers", {
+          day: numbers.day,
+          amount: formatField("total_price", numbers.amount),
+          volume: formatField("volume_liter", numbers.volume),
+        }),
+      ),
+    ],
+    decidedBy: entry.decision
+      ? t("report:sameReceipt.decidedBy", { name: entry.decision.user_name, date: formatDateTime(entry.decision.decided_at) })
+      : entry.review_status === "approved"
+        ? t("report:sameReceipt.byOcr")
+        : null,
+    reason: entry.decision?.decision === "rejected" ? entry.decision.reason : null,
+  }));
+}
+
+/** The headline of a double claim no reviewer decided yet, and what to do: worked out from the earlier report that
+ *  matters most (approved: likely paid already; then one still open; then one rejected, which another employee sent:
+ *  the same employee's would be a resubmission). null when it is not a double claim, or a reviewer decided. */
+function doubleClaimSummary(report: BbmReimbursement): { title: string; text: string } | null {
+  const earlier = doubleClaims(report);
+  if (earlier.length === 0 || report.decision) return null;
+  const title =
+    earlier.length === 1
+      ? t("report:sameReceipt.title", { code: earlier[0].reimbursement_code })
+      : t("report:sameReceipt.titleMany", { count: earlier.length });
+  const approved = earlier.find((entry) => entry.review_status === "approved");
+  if (approved) return { title, text: t("report:sameReceipt.textApproved", { code: approved.reimbursement_code }) };
+  const open = earlier.find((entry) => entry.review_status !== "rejected");
+  if (open) return { title, text: t("report:sameReceipt.textOpen", { code: open.reimbursement_code }) };
+  return {
+    title,
+    text: t("report:sameReceipt.textRejected", {
+      code: earlier[0].reimbursement_code,
+      name: earlier[0].employee_name,
+      employee: report.employee_name,
+    }),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// The fuel price page's price of each item's fuel (DKI Jakarta), next to the price per liter worked out from the item
+// ---------------------------------------------------------------------------
+
+/** How far the price per liter worked out from an item may be from the fuel price page's price on its date before it
+ *  is marked. Wider than PRICE_TOLERANCE: the page has Jakarta's prices, and other regions' differ a little. */
+export const FUEL_PRICE_TOLERANCE = 0.1;
+
+export interface FuelPriceCell {
+  /** "Rp 13.860", "Tidak tercantum", "Belum ada data" */
+  value: string;
+  /** A price is known (not "not listed", "no data"). */
+  known: boolean;
+  /** "Sejak 01-01-2026 · Berita" */
+  note: string | null;
+}
+
+export interface ItemFuelPriceRow {
+  item: BbmItem;
+  /** The fuel's name, or what to say when it can't be told. */
+  fuel: string;
+  fuelKnown: boolean;
+  /** Its merchant (and that the receipt named it), or why it can't be told. */
+  fuelNote: string;
+  onDate: FuelPriceCell;
+  today: FuelPriceCell;
+  /** "Selisih 45% dari harga per liter dihitung": the worked-out price is farther than FUEL_PRICE_TOLERANCE from the
+   *  price on the item's date. */
+  gap: string | null;
+}
+
+const NO_PRICE: FuelPriceCell = { value: EMPTY, known: false, note: null };
+
+function fuelPriceCell(price: FuelPriceOnDay | null): FuelPriceCell {
+  if (price === null) return { value: t("report:fuelPrice.noData"), known: false, note: null };
+  const note = t("report:fuelPrice.since", { date: price.valid_from, source: t(`fuelPrice:source.${price.source}`) });
+  return price.price_per_liter === null
+    ? { value: t("report:fuelPrice.notListed"), known: false, note }
+    : { value: formatMoney(price.price_per_liter), known: true, note };
+}
+
+/** One row per item for the fuel price card. */
+function fuelPriceRows(items: BbmItem[]): ItemFuelPriceRow[] {
+  return items.map((item) => {
+    const fuel = item.fuel_price;
+    if (!fuel) {
+      return {
+        item,
+        fuel: t("report:fuelPrice.unknownFuel"),
+        fuelKnown: false,
+        fuelNote: t("report:fuelPrice.unknownFuelNote", { type: item.product_name }),
+        onDate: NO_PRICE,
+        today: NO_PRICE,
+        gap: null,
+      };
+    }
+    const onDate = fuel.on_date?.price_per_liter ?? null;
+    const apart = onDate ? Math.abs(item.price_per_liter - onDate) / onDate : 0;
+    const merchant = merchantName(fuel.merchant);
+    return {
+      item,
+      fuel: fuel.product,
+      fuelKnown: true,
+      fuelNote: fuel.from_receipt ? t("report:fuelPrice.fromReceipt", { merchant, type: item.product_name }) : merchant,
+      onDate: fuelPriceCell(fuel.on_date),
+      today: fuelPriceCell(fuel.today),
+      gap: apart > FUEL_PRICE_TOLERANCE ? t("report:fuelPrice.gap", { percent: formatPercent(apart) }) : null,
+    };
+  });
+}
+
 export function useBbmReportController(code: string, user: User) {
   const { state, refreshing, reload, update } = useApi(`bbm-report:${code}`, (signal) => getReport(code, signal));
   const report = state.status === "ready" ? state.data.report : null;
@@ -798,33 +943,20 @@ export function useBbmReportController(code: string, user: User) {
   const queueApi = useApi(`bbm-queue:${queue?.query ?? ""}`, (signal) => loadQueueCodes(queue, signal));
   const queueList = queueApi.state.status === "ready" ? queueApi.state.data : null;
 
-  // The revision on screen: the current (newest) one unless another one is picked.
-  const [pickedRevisionNo, setPickedRevisionNo] = useState<number | null>(null);
-  const revision = report
-    ? (report.revisions.find((candidate) => candidate.revision_no === pickedRevisionNo) ?? report.revisions[0])
-    : null;
-  const review = useMemo(() => (revision ? reviewOf(revision) : null), [revision]);
+  const review = useMemo(() => (report ? reviewOf(report) : null), [report]);
   // Kept while the files stay the same (also when the report is loaded again, e.g. after a decision), so the
   // viewer does not load and draw them again.
-  const filesKey = JSON.stringify(revision?.photos.map(({ id, name }) => ({ id, name })) ?? []);
+  const filesKey = JSON.stringify(report?.photos.map(({ id, name }) => ({ id, name })) ?? []);
   const files = useMemo(() => filesOf(JSON.parse(filesKey)), [filesKey]);
-  // For an older revision: the one sent right after it. For any but the first: the one sent before it.
-  const revisionIndex = report && revision ? report.revisions.indexOf(revision) : -1;
-  const replacedBy = report ? (report.revisions[revisionIndex - 1] ?? null) : null;
-  const previousRevision = report ? (report.revisions[revisionIndex + 1] ?? null) : null;
-  const changes = useMemo(
-    () => (previousRevision && revision ? changesBetween(previousRevision, revision) : null),
-    [previousRevision, revision],
-  );
 
   const queueCodes = queueList?.codes ?? [];
   const position = queueCodes.indexOf(code);
   const history = useMemo(() => (report ? historyOf(report) : []), [report]);
+  const fuelPrices = useMemo(() => (report ? fuelPriceRows(report.items) : []), [report]);
 
-  // Deciding: always on the current revision, as the reviewer saw it (based_on). After approving or rejecting, the
-  // next report of the "Needs review" list opens; a toast offers to undo it.
+  // Deciding: on the report as the reviewer saw it (based_on). After approving or rejecting, the next report of the
+  // "Needs review" list opens; a toast offers to undo it.
   const toast = useBlueToast();
-  const current = report?.revisions[0] ?? null;
   const [deciding, setDeciding] = useState<ReviewDecision["decision"] | null>(null);
   const [rejecting, setRejecting] = useState(false);
   // Kept when the dialog is closed without rejecting, so a typed reason is not lost
@@ -849,26 +981,25 @@ export function useBbmReportController(code: string, user: User) {
     update((data) => ({ ...data, report: reimbursement }));
   }
 
-  /** Decide on the current revision; throws the backend's error. */
+  /** Decide on the report; throws the backend's error. */
   async function send(decision: ReviewDecision["decision"], reasonText: string | null) {
-    if (!current) throw new Error("The report is not loaded.");
-    const before = current.decision;
+    if (!report) throw new Error("The report is not loaded.");
+    const before = report.decision;
     const body = await postDecision(code, {
       user_email: user.email,
-      revision_no: current.revision_no,
       decision,
       reason: reasonText,
-      based_on: current.decisions[0]?.id ?? null,
+      based_on: report.decisions[0]?.id ?? null,
     });
-    return { made: body.decision, before, revisionNo: current.revision_no, reimbursement: body.reimbursement };
+    return { made: body.decision, before, reimbursement: body.reimbursement };
   }
 
   /** Show the decided report, say so (with Undo), and open the next report of the list when there is one. */
-  function finish({ made, before, revisionNo, reimbursement }: Awaited<ReturnType<typeof send>>) {
+  function finish({ made, before, reimbursement }: Awaited<ReturnType<typeof send>>) {
     showReport(reimbursement);
     const reopened = made.decision === "reopened";
     const next = reopened ? null : advance;
-    const status = REVIEW_STATUSES[reimbursement.revisions[0].review_status].label;
+    const status = REVIEW_STATUSES[reimbursement.review_status].label;
     const lastOfList = queue && isWorkList(queue.url) && position === queueCodes.length - 1;
     toast.show({
       variant: "success",
@@ -883,24 +1014,23 @@ export function useBbmReportController(code: string, user: User) {
             ? t("report:toast.lastOfList", { list: queueLabel(queue) })
             : undefined,
       duration: 10000,
-      action: { label: t("report:toast.undo"), onClick: () => void undo(made, before, revisionNo) },
+      action: { label: t("report:toast.undo"), onClick: () => void undo(made, before) },
     });
     if (next) navigate(bbmReportPath(next.code));
   }
 
   /** Put back the decision that was in force before (or none), right after deciding. */
-  async function undo(made: ReviewDecision, before: DecisionInForce | null, revisionNo: number) {
+  async function undo(made: ReviewDecision, before: DecisionInForce | null) {
     try {
       const body = await postDecision(code, {
         user_email: user.email,
-        revision_no: revisionNo,
         decision: before?.decision ?? "reopened",
         reason: before?.reason ?? null,
         based_on: made.id,
       });
       if (mounted.current) showReport(body.reimbursement);
       else navigate(bbmReportPath(code));
-      const status = REVIEW_STATUSES[body.reimbursement.revisions[0].review_status].label;
+      const status = REVIEW_STATUSES[body.reimbursement.review_status].label;
       toast.show({ variant: "info", title: t("report:toast.undone", { code, status }) });
     } catch (error) {
       toast.error(t("report:toast.undoFailed", { code }), errorMessage(error));
@@ -915,7 +1045,6 @@ export function useBbmReportController(code: string, user: User) {
         title: t("report:toast.changed", { code }),
         message: t("report:toast.reloaded", { error: errorMessage(error) }),
       });
-      setPickedRevisionNo(null);
       reload();
     } else {
       toast.error(t("report:toast.saveFailed", { code }), errorMessage(error));
@@ -964,11 +1093,11 @@ export function useBbmReportController(code: string, user: User) {
     }
   }
 
-  // Retrying the OCR on the current revision: the files it could not read go back in its queue. The page then loads
-  // the report again every RETRY_WATCH_MS until the OCR has read them (or failed again), so the result shows by itself.
+  // Retrying the OCR: the files it could not read go back in its queue. The page then loads the report again every
+  // RETRY_WATCH_MS until the OCR has read them (or failed again), so the result shows by itself.
   const [retrying, setRetrying] = useState(false);
   const [watchingCode, setWatchingCode] = useState<string | null>(null);
-  const watching = watchingCode === code && current?.ocr_status === "processing";
+  const watching = watchingCode === code && report?.ocr_status === "processing";
   const loadedAt = state.status === "ready" ? state.data.loadedAt : null;
   useEffect(() => {
     if (!watching) return;
@@ -977,10 +1106,10 @@ export function useBbmReportController(code: string, user: User) {
   }, [watching, loadedAt, reload]);
 
   async function retryOcr() {
-    if (!current || retrying) return;
+    if (!report || retrying) return;
     setRetrying(true);
     try {
-      const body = await postOcrRetry(code, current.revision_no);
+      const body = await postOcrRetry(code);
       if (!mounted.current) return;
       showReport(body.reimbursement);
       setWatchingCode(code);
@@ -991,7 +1120,6 @@ export function useBbmReportController(code: string, user: User) {
           title: t("report:toast.changed", { code }),
           message: t("report:toast.reloaded", { error: errorMessage(error) }),
         });
-        setPickedRevisionNo(null);
         reload();
       } else {
         toast.error(t("report:toast.retryFailed", { code }), errorMessage(error));
@@ -1045,7 +1173,6 @@ export function useBbmReportController(code: string, user: User) {
     reload,
     loadedAt,
     report,
-    isBbm: report?.reimbursement_type === "bbm",
     /** Back to the list as the reviewer left it, and the reports before and after this one in it. */
     navigation: {
       backPath: queue?.url ?? BBM_PATH,
@@ -1058,45 +1185,37 @@ export function useBbmReportController(code: string, user: User) {
       previousPath: position > 0 ? bbmReportPath(queueCodes[position - 1]) : null,
       nextPath: position >= 0 && position < queueCodes.length - 1 ? bbmReportPath(queueCodes[position + 1]) : null,
     },
-    revision,
-    replacedBy,
-    previousRevision,
-    /** What changed since the revision sent before the shown one (null for the first revision). */
-    changes,
-    /** When the shown revision came after an approval (previously_approved): the number of the approved revision. */
-    approvedBefore:
-      report && revision?.previously_approved
-        ? (report.revisions.find(
-            (earlier) =>
-              earlier.revision_no < revision.revision_no &&
-              (earlier.review_status === "approved" || earlier.review_status === "rejected"),
-          )?.revision_no ?? null)
-        : null,
-    showRevision: (revisionNo: number) => setPickedRevisionNo(revisionNo),
-    /** The receipt files of the shown revision. */
+    /** The receipt files of the report. */
     files,
     review,
-    /** Retrying the OCR: offered on the current revision when the OCR could not read a file of it and no decision
-     *  is in force (a decision wins over the OCR anyway). */
+    /** Retrying the OCR: offered when the OCR could not read a file of the report and no decision is in force (a
+     *  decision wins over the OCR anyway). */
     ocrRetry: {
       available:
-        revision !== null &&
-        revision === current &&
-        revision.ocr_status === "failed" &&
-        revision.decision === null &&
-        revision.photos.some((photo) => photo.ocr_status === "failed" && !FINAL_FAILURES.has(photo.ocr_error_reason ?? "other")),
+        report !== null &&
+        report.ocr_status === "failed" &&
+        report.decision === null &&
+        report.photos.some((photo) => photo.ocr_status === "failed" && !FINAL_FAILURES.has(photo.ocr_error_reason ?? "other")),
       retrying,
       retry: () => void retryOcr(),
     },
     showDifference,
     itemDifferences: (itemRowId: number, field: string) => review?.byItemCell.get(cellKey(itemRowId, field)),
+    /** The fuel price page's price of each item's fuel, on its date and today. */
+    fuelPrices,
+    /** The other reports claiming the same receipt, and the headline when one claimed it before. */
+    sameReceipt: {
+      rows: report ? sameReceiptRows(report) : [],
+      doubleClaim: report ? doubleClaimSummary(report) : null,
+      /** Scroll to the card. */
+      show: showSameReceipt,
+    },
     lineDifferences: (lineId: number, field: string) => review?.byLineCell.get(cellKey(lineId, field)),
-    /** The decision bar: what can be decided on the shown revision, and what happens after. */
+    /** The decision bar: what can be decided on the report, and what happens after. */
     decision: {
       /** For the bar's element (see measureDecisionBar). */
       barRef: measureDecisionBar,
-      panel: revision && current ? decisionPanelOf(revision, current, user.email) : null,
-      previousRejection: report && revision ? previousRejectionOf(report.revisions, revisionIndex) : null,
+      panel: report ? decisionPanelOf(report, user.email) : null,
       /** The decision being saved, if any. */
       deciding,
       /** The report that opens after deciding (only in the "Needs review" list). */
@@ -1107,14 +1226,16 @@ export function useBbmReportController(code: string, user: User) {
         setReasonError(null);
         setRejecting(true);
       },
-      showCurrent: () => setPickedRevisionNo(null),
     },
     rejectDialog: {
       open: rejecting,
       reason,
       error: reasonError,
       saving: deciding === "rejected",
-      suggestions: review ? reasonSuggestions(review.differences) : usualReasons(),
+      suggestions:
+        review && report
+          ? reasonSuggestions(review.differences, report)
+          : [...claimedInReasons(report), ...usualReasons(report)],
       change: (text: string) => {
         setReason(text);
         setReasonError(null);

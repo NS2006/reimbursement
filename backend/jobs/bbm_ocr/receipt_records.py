@@ -4,7 +4,7 @@ receipt_validation.validate_receipts, and an OCR reading plus its validation as 
 (ocr_reimbursement, ocr_bbm_receipt, ocr_difference). Plain functions, no database access.
 
 For now a BBM receipt has exactly one product, so each submitted item is one receipt. The items carry no discount
-and no total per receipt: the file is checked against the revision's grand total instead (what was paid).
+and no total per receipt: a report's only file is checked against the report's grand total instead (what was paid).
 """
 
 from datetime import date
@@ -39,14 +39,14 @@ TEXT_LENGTHS = {"product_name": 255, "date_of_expense": 100}
 
 def submitted_receipts(items):
     """The submitted items (bbm_receipt rows) as receipts for validate_receipts: one receipt with one product per
-    item, in the same order. A value the item does not have (no price per liter) is left out, so it is not compared;
-    a receipt has no discount or total (the file's grand total is checked instead)."""
+    item, in the same order. Left out: the price per liter (not sent: validate_receipts works it out from the total
+    and the volume, as the database does, and compares that with the receipt's), and a discount or total per receipt
+    (not sent: the grand total is checked instead)."""
     receipts = []
     for item in items:
         product = {
             "name": item["product_name"],
             "quantity": _float(item["volume_liter"]),
-            "unit_price": _float(item["price_per_liter"]),
             "total_price": _float(item["total_price"]),
         }
         receipts.append({

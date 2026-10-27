@@ -16,12 +16,19 @@ log = logging.getLogger(__name__)
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 GZIP_MIN_BYTES = 1024  # smaller answers are sent as they are: compressing them saves next to nothing
+MAX_BODY_BYTES = 5 * 1024 * 1024  # bigger request bodies get 413 Payload Too Large
+ANY_BODY_SIZE = {"api.store_reimbursements"}  # Darwinbox's batches of reports: no limit on their size
 
 
 def create_app() -> Flask:
     app = Flask(__name__)
-    app.config["MAX_CONTENT_LENGTH"] = 5 * 1024 * 1024  # bigger request bodies get 413 Payload Too Large
     app.register_blueprint(bp, url_prefix="/api")
+
+    @app.before_request
+    def limit_body_size():
+        # Per request, not MAX_CONTENT_LENGTH: a request can't lift the app's limit, only set its own.
+        if request.endpoint not in ANY_BODY_SIZE:
+            request.max_content_length = MAX_BODY_BYTES
 
     @app.errorhandler(HTTPException)
     def handle_http_error(error: HTTPException):

@@ -31,6 +31,7 @@ type LabelAndText =
   | "approvedBy.matched"
   | "approvedBy.proceed"
   | "approvedBy.reviewer"
+  | "needsReviewReason.duplicate"
   | "needsReviewReason.differences"
   | "needsReviewReason.failed"
   | "statusParts.needs_review"
@@ -69,20 +70,26 @@ export function approvedBy(report: Pick<ReimbursementSummary, "review_status" | 
   return report.ocr_status === "proceed" ? "proceed" : "matched";
 }
 
-/** Why a report needs a reviewer: the OCR read the file and found differences it can't explain, or the OCR couldn't
- * read the file at all (Claude timed out, couldn't run or gave no usable answer: nothing to do with the receipt). */
-export type NeedsReviewReason = "differences" | "failed";
+/** Why a report needs a reviewer: a report received earlier claims the same receipt (whatever the OCR found), the
+ * OCR read the file and found differences it can't explain, or the OCR couldn't read the file at all (Claude timed
+ * out, couldn't run or gave no usable answer: nothing to do with the receipt). */
+export type NeedsReviewReason = "duplicate" | "differences" | "failed";
 
 export const NEEDS_REVIEW_REASONS: Record<NeedsReviewReason, { label: string; text: string }> = {
+  duplicate: labelAndText("needsReviewReason.duplicate"),
   differences: labelAndText("needsReviewReason.differences"),
   failed: labelAndText("needsReviewReason.failed"),
 };
 
-export const NEEDS_REVIEW_REASON_ORDER: NeedsReviewReason[] = ["differences", "failed"];
+export const NEEDS_REVIEW_REASON_ORDER: NeedsReviewReason[] = ["duplicate", "differences", "failed"];
 
-/** differences / failed for a report that needs review; null for any other. */
-export function needsReviewReason(report: Pick<ReimbursementSummary, "review_status" | "ocr_status">): NeedsReviewReason | null {
+/** duplicate / differences / failed for a report that needs review; null for any other. As the backend's
+ * status_part (reimbursement_repository._status_sql): change them together. */
+export function needsReviewReason(
+  report: Pick<ReimbursementSummary, "review_status" | "ocr_status" | "double_claim">,
+): NeedsReviewReason | null {
   if (report.review_status !== "needs_review") return null;
+  if (report.double_claim) return "duplicate";
   return report.ocr_status === "failed" ? "failed" : "differences";
 }
 
